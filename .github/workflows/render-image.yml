@@ -1,0 +1,276 @@
+name: Render Images
+
+on:
+  issue_comment:
+    types: [created]
+
+# Only run for LUMA image jobs
+jobs:
+  render:
+    if: startsWith(github.event.comment.body, 'LUMA_IMG:')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Parse payload
+        id: p
+        run: |
+          COMMENT='${{ github.event.comment.body }}'
+          JSON="${COMMENT#LUMA_IMG:}"
+          parse() { echo "$JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');console.log(JSON.parse(d).$1||'')"; }
+          echo "jobId=$(parse jobId)"    >> $GITHUB_OUTPUT
+          echo "text=$(parse text)"      >> $GITHUB_OUTPUT
+          echo "deviceId=$(parse deviceId)" >> $GITHUB_OUTPUT
+
+      - name: Generate SVGs via Groq
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          JOB_ID:       ${{ steps.p.outputs.jobId }}
+          INPUT_TEXT:   ${{ steps.p.outputs.text }}
+          DEVICE_ID:    ${{ steps.p.outputs.deviceId }}
+        run: |
+          cat << 'SCRIPT' > gen.mjs
+          import fs from 'fs';
+
+          const jobId    = process.env.JOB_ID;
+          const text     = process.env.INPUT_TEXT;
+          const deviceId = process.env.DEVICE_ID;
+
+          if (!jobId || !text) { console.error('Missing jobId or text'); process.exit(1); }
+
+          // ── Groq AI: parse & structure the text into posts ──
+          const prompt = `Return ONLY valid JSON. No explanation. No markdown. No code fences.
+
+Task: Split the input text into separate posts and structure as JSON.
+
+Rules:
+1. REMOVE any post/section numbering from titles (e.g. "1.", "(1)", "Post 1:").
+2. Copy every word, emoji, symbol, punctuation EXACTLY — do not paraphrase.
+3. Wrap IMPORTANT words in **double asterisks** for bold rendering:
+   - Zodiac sign names
+   - Planet names (Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune)
+   - Power words: strength, love, success, wealth, abundance, growth, clarity, power
+4. Keep all emojis exactly as they appear in the input.
+5. Posts are separated by blank lines or numbered sections.
+
+Output JSON (no other text whatsoever):
+{"posts":[{"title":"title text","content":["line 1","line 2",""]}]}
+
+Where:
+- title = first meaningful line, numbering stripped
+- content = remaining lines as strings; empty lines become ""
+
+INPUT:
+${text}
+
+JSON:`;
+
+          let posts = [];
+          try {
+            const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 4096,
+                temperature: 0.1
+              })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error?.message || `Groq ${res.status}`);
+            let raw = data.choices?.[0]?.message?.content || '';
+            raw = raw.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+            const si = raw.indexOf('{'), ei = raw.lastIndexOf('}');
+            if (si !== -1) {
+              const p = JSON.parse(raw.slice(si, ei + 1));
+              posts = Array.isArray(p) ? p : (p.posts || []);
+            }
+          } catch(e) {
+            console.error('Groq error:', e.message);
+            process.exit(1);
+          }
+
+          if (!posts.length) { console.error('No posts parsed from AI response'); process.exit(1); }
+
+          // ── Text helpers ──
+          const ZODIAC = /(Aries|Taurus|Gemini|Cancer|Leo|Virgo|Libra|Scorpio|Sagittarius|Capricorn|Aquarius|Pisces)/gi;
+          const bold  = t => t ? t.replace(ZODIAC, '**$1**') : t;
+          const clean = t => (t||'').replace(/\*\*/g,'').trim();
+          const strip = t => (t||'').replace(/^\s*(?:post\s*)?\d+\s*[.:\)]\s*/i,'').replace(/^\s*\(\d+\)\s*/,'').trim();
+
+          posts = posts.map(p => ({
+            title:   bold(strip(p.title||'')),
+            content: (p.content||[]).map(l => l ? bold(l) : l)
+          }));
+
+          // ── SVG generation ──
+          const FONTS  = `'Apple Color Emoji','Noto Color Emoji','Segoe UI Emoji'`;
+          const BASE_F = `'Syne','DM Sans',ui-sans-serif,system-ui,-apple-system,sans-serif,${FONTS}`;
+
+          function xe(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+          function isWide(ch) { const cp=ch.codePointAt(0); return cp>=0x1F000||(cp>=0x4E00&&cp<=0x9FFF)||(cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||(cp>=0x2600&&cp<=0x27FF); }
+          function charLen(s) { let n=0;for(const c of [...(s||'')])n+=isWide(c)?2:1;return n; }
+          function parseBold(t) {
+            const segs=[],re=/\*\*(.*?)\*\*/g;let last=0,m;
+            while((m=re.exec(t))!==null){if(m.index>last)segs.push({t:t.slice(last,m.index),b:false});if(m[1])segs.push({t:m[1],b:true});last=re.lastIndex;}
+            if(last<t.length)segs.push({t:t.slice(last),b:false});
+            return segs.filter(s=>s.t);
+          }
+          function wrapLatin(txt,cpl) {
+            const ws=txt.split(' '),lines=[];let cur='',curL=0;
+            for(const w of ws){const wl=charLen(clean(w)),sep=cur?1:0;if(curL+sep+wl>cpl&&cur){lines.push(cur);cur=w;curL=wl;}else{cur=cur?`${cur} ${w}`:w;curL+=sep+wl;}}
+            if(cur)lines.push(cur);return lines.length?lines:[''];
+          }
+          function wrapCJK(txt,cpl) {
+            const lines=[];let raw='',len=0,bold=false;
+            const chars=[...txt];let i=0;
+            while(i<chars.length){
+              if(chars[i]==='*'&&chars[i+1]==='*'){raw+='**';bold=!bold;i+=2;continue;}
+              const ch=chars[i],cl=isWide(ch)?2:1;
+              if(len+cl>cpl&&clean(raw).length>0){if(bold)raw+='**';lines.push(raw);raw=bold?'**'+ch:ch;len=cl;}
+              else{raw+=ch;len+=cl;}i++;
+            }
+            if(clean(raw))lines.push(raw);return lines.length?lines:[''];
+          }
+          function smartWrap(txt,cpl) {
+            if(!txt)return[''];const p=clean(txt),sp=(p.match(/ /g)||[]).length,wc=[...p].filter(isWide).length;
+            return(wc>p.length*.3||(wc>2&&sp<2))?wrapCJK(txt,cpl):wrapLatin(txt,cpl);
+          }
+          function renderLine(px,y,fs,fw,fill,raw) {
+            const segs=parseBold(raw),hasBold=segs.some(s=>s.b);
+            if(!hasBold)return`<text x="${px}" y="${y}" font-family="${BASE_F}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(clean(raw))}</text>`;
+            const spans=segs.map(s=>`<tspan font-weight="${s.b?900:fw}" fill="${s.b?'#FFFFFF':fill}">${xe(s.t)}</tspan>`).join('');
+            return`<text x="${px}" y="${y}" font-family="${BASE_F}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${spans}</text>`;
+          }
+
+          function makeSVG(post) {
+            const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOT=H-PY;
+            const rawTitle=(post.title||'').trim(), content=post.content||[];
+            const visLen=charLen(clean(rawTitle))+charLen(content.map(l=>clean(l||'')).join(''));
+
+            let ts,bs,tlh,blh,gap;
+            if(visLen<80)      {ts=96;bs=62;tlh=134;blh=90;gap=76;}
+            else if(visLen<150){ts=86;bs=55;tlh=120;blh=82;gap=68;}
+            else if(visLen<260){ts=74;bs=49;tlh=104;blh=72;gap=58;}
+            else if(visLen<420){ts=65;bs=44;tlh=92; blh=64;gap=50;}
+            else if(visLen<620){ts=55;bs=40;tlh=80; blh=58;gap=44;}
+            else if(visLen<900){ts=48;bs=35;tlh=70; blh=50;gap=36;}
+            else               {ts=41;bs=31;tlh=60; blh=44;gap=32;}
+
+            const tCPL=Math.floor(CW/(ts*.50)),bCPL=Math.floor(CW/(bs*.50));
+            const titleLines=smartWrap(rawTitle,tCPL);
+            const bodyLines=[];
+            for(const line of content){
+              const r=line||'';
+              if(!clean(r)){bodyLines.push({raw:'',gap:true});}
+              else{for(const w of smartWrap(r,bCPL))bodyLines.push({raw:w,gap:false});}
+            }
+            const titleH=titleLines.length*tlh;
+            const bodyH=bodyLines.reduce((s,l)=>s+(l.gap?blh*.5:blh),0);
+            const totalH=titleH+(bodyLines.length?gap+bodyH:0);
+            let y=totalH>(H-PY*2)?PY+ts:Math.max(PY+ts,Math.round((H-totalH)/2)+ts);
+
+            const els=[];
+            for(const line of titleLines){if(y>BOT+ts)break;els.push(renderLine(PX,y,ts,800,'#FFFFFF',line));y+=tlh;}
+            if(bodyLines.length){
+              const ay=y+Math.round(gap*.28);
+              if(ay<BOT)els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(124,109,255,0.7)"/>`);
+              y+=gap;
+            }
+            for(const line of bodyLines){
+              if(!line.gap&&y>BOT+bs)break;
+              if(!line.gap)els.push(renderLine(PX,y,bs,400,'rgba(255,255,255,0.82)',line.raw));
+              y+=line.gap?Math.round(blh*.5):blh;
+            }
+
+            return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#030310"/>
+      <stop offset="50%"  stop-color="#070516"/>
+      <stop offset="100%" stop-color="#000918"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="80%" cy="10%" r="50%">
+      <stop offset="0%" stop-color="#7c6dff" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#7c6dff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="15%" cy="90%" r="45%">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>
+  </defs>
+  <rect width="${W}" height="${H}" fill="url(#bg)"/>
+  <rect width="${W}" height="${H}" fill="url(#glow1)"/>
+  <rect width="${W}" height="${H}" fill="url(#glow2)"/>
+  <g clip-path="url(#clip)">
+    ${els.join('\n    ')}
+  </g>
+</svg>`;
+          }
+
+          // ── Build results ──
+          const results = posts.map((p, i) => ({
+            title:   clean(p.title),
+            content: p.content,
+            svg:     makeSVG(p),
+            index:   i
+          }));
+
+          // ── Write status JSON ──
+          const dir = 'api/status';
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+          const status = {
+            jobId, deviceId,
+            status:    'done',
+            template:  'imggen',
+            total:     results.length,
+            done:      results.length,
+            label:     clean(posts[0]?.title||'Session').slice(0,80),
+            timestamp: Date.now(),
+            results:   results.map(r => ({ title: r.title, svg: r.svg, content: r.content }))
+          };
+
+          fs.writeFileSync(`${dir}/${jobId}.json`, JSON.stringify(status));
+          console.log(`✓ Generated ${results.length} images → api/status/${jobId}.json`);
+          SCRIPT
+          node gen.mjs
+
+      - name: Commit status to repo (serves via GitHub Pages)
+        run: |
+          git config user.name  "LUMA Bot"
+          git config user.email "luma-bot@users.noreply.github.com"
+          git add api/status/
+          git diff --staged --quiet || git commit -m "feat: image job ${{ steps.p.outputs.jobId }}"
+          git push
+
+      - name: Write error status on failure
+        if: failure()
+        run: |
+          mkdir -p api/status
+          JOB="${{ steps.p.outputs.jobId }}"
+          echo "{\"status\":\"error\",\"jobId\":\"$JOB\",\"error\":\"Image generation failed. Check Actions logs.\",\"results\":[],\"done\":0,\"total\":0}" \
+            > api/status/$JOB.json
+          git config user.name  "LUMA Bot"
+          git config user.email "luma-bot@users.noreply.github.com"
+          git add api/status/
+          git diff --staged --quiet || git commit -m "err: image job $JOB"
+          git push
