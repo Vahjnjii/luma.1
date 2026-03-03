@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#030308">
+<title>LUMA — AI Content Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#030308;
+  --s1:#08070f;
+  --s2:#0e0c1a;
+  --s3:#14122a;
+  --bd:rgba(255,255,255,.06);
+  --bdh:rgba(255,255,255,.14);
+  --tx:#f0eeff;
+  --tx2:rgba(240,238,255,.55);
+  --tx3:rgba(240,238,255,.25);
+  --acc:#7c6dff;
+  --acc2:#a78bfa;
+  --acc3:#c4b5fd;
+  --gn:#34d399;
+  --rd:#f87171;
+  --yw:#fbbf24;
+  --r8:8px;--r12:12px;--r16:16px;--r20:20px;--r24:24px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--tx);font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overscroll-behavior:none;}
+h1,h2,h3,.brand{font-family:'Syne',sans-serif;}
+::-webkit-scrollbar{width:2px}::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
+
+/* ANIMATIONS */
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes slidein{from{transform:translateX(100%)}to{transform:translateX(0)}}
+@keyframes dot{0%,80%,100%{transform:scale(.2);opacity:.2}40%{transform:scale(1);opacity:1}}
+@keyframes shimmer{0%{background-position:200% 50%}100%{background-position:-200% 50%}}
+@keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(124,109,255,.4)}70%{box-shadow:0 0 0 16px rgba(124,109,255,0)}100%{box-shadow:0 0 0 0 rgba(124,109,255,0)}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+
+.spin{animation:spin .9s linear infinite}
+.screen{display:none;position:fixed;inset:0}
+.screen.active{display:flex}
+
+/* ═══════════════ NOISE OVERLAY ═══════════════ */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:999;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  opacity:.4;mix-blend-mode:overlay;
+}
+
+/* ═══════════════ MESH GRADIENTS ═══════════════ */
+.mesh{position:absolute;pointer-events:none;border-radius:50%;filter:blur(80px);opacity:.12}
+.mesh-a{width:600px;height:600px;background:radial-gradient(circle,#7c6dff,transparent 70%);top:-200px;right:-150px;}
+.mesh-b{width:500px;height:500px;background:radial-gradient(circle,#a78bfa,transparent 70%);bottom:-100px;left:-150px;}
+.mesh-c{width:300px;height:300px;background:radial-gradient(circle,#34d399,transparent 70%);bottom:30%;right:10%;opacity:.06;}
+
+/* ═══════════════ LOGIN ═══════════════ */
+#screen-login{
+  flex-direction:column;align-items:center;justify-content:center;
+  padding:24px;background:var(--bg);overflow-y:auto;
+}
+.login-wrap{position:relative;z-index:2;width:100%;max-width:380px;animation:fadeUp .6s cubic-bezier(.16,1,.3,1) both}
+.login-logo{
+  width:72px;height:72px;border-radius:22px;margin:0 auto 22px;
+  background:linear-gradient(135deg,#5b4de0,#7c6dff,#a78bfa);
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#fff;letter-spacing:-1px;
+  animation:pulse-ring 3s ease infinite;
+  box-shadow:0 12px 40px rgba(92,77,224,.35);
+}
+.login-title{
+  font-family:'Syne',sans-serif;font-size:38px;font-weight:800;letter-spacing:-2px;
+  text-align:center;margin-bottom:6px;
+  background:linear-gradient(135deg,#fff 0%,var(--acc3) 60%,var(--acc) 100%);
+  background-size:200%;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;animation:shimmer 5s linear infinite;
+}
+.login-sub{font-size:13px;color:var(--tx2);text-align:center;margin-bottom:32px;letter-spacing:.02em}
+.login-card{
+  background:rgba(14,12,26,.85);backdrop-filter:blur(24px);
+  border:1px solid var(--bd);border-radius:var(--r24);padding:32px 28px;
+  box-shadow:0 32px 80px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.05);
+}
+.field-label{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3);margin-bottom:8px}
+.field-input{
+  width:100%;background:rgba(255,255,255,.04);border:1px solid var(--bd);
+  border-radius:var(--r12);padding:13px 16px;color:var(--tx);font-size:15px;
+  font-family:'DM Sans',sans-serif;outline:none;transition:border-color .2s,background .2s;
+}
+.field-input:focus{border-color:rgba(124,109,255,.5);background:rgba(255,255,255,.06)}
+.field-input::placeholder{color:var(--tx3)}
+.btn-primary{
+  width:100%;background:linear-gradient(135deg,#5b4de0,#7c6dff);
+  border:none;border-radius:var(--r12);padding:14px;color:#fff;
+  font-size:15px;font-weight:700;font-family:'DM Sans',sans-serif;
+  cursor:pointer;transition:all .2s;margin-top:16px;
+  box-shadow:0 4px 20px rgba(92,77,224,.3);letter-spacing:.01em;
+}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 8px 28px rgba(92,77,224,.42)}
+.btn-primary:active{transform:scale(.97)}
+.btn-primary:disabled{opacity:.5;cursor:wait;transform:none}
+.login-err{
+  background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.2);
+  border-radius:var(--r8);padding:10px 14px;font-size:12px;color:#fca5a5;
+  display:none;margin-top:12px;
+}
+.login-note{font-size:11px;color:var(--tx3);text-align:center;margin-top:20px;line-height:1.9}
+.login-note a{color:var(--acc2);text-decoration:none}
+.login-note a:hover{text-decoration:underline}
+
+/* ═══════════════ TEMPLATES ═══════════════ */
+#screen-templates{flex-direction:column;background:var(--bg);overflow-y:auto}
+.tmpl-nav{
+  position:sticky;top:0;z-index:10;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:20px 20px 16px;
+  background:linear-gradient(to bottom,var(--bg) 60%,transparent);
+  max-width:480px;margin:0 auto;width:100%;
+}
+.tmpl-brand{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;letter-spacing:-1px;color:var(--tx)}
+.user-pill{
+  display:flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,.04);border:1px solid var(--bd);
+  border-radius:50px;padding:6px 14px 6px 8px;cursor:pointer;
+  transition:all .2s;font-size:13px;font-weight:500;color:var(--tx2);
+}
+.user-pill:hover{border-color:var(--bdh);color:var(--tx)}
+.user-pill-av{
+  width:24px;height:24px;border-radius:50%;
+  background:linear-gradient(135deg,var(--acc),var(--acc2));
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:800;color:#fff;
+}
+.tmpl-body{padding:0 20px 60px;max-width:480px;margin:0 auto;width:100%}
+.tmpl-greet{font-family:'Syne',sans-serif;font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--tx);margin-bottom:4px}
+.tmpl-hint{font-size:13px;color:var(--tx2);margin-bottom:28px}
+.tmpl-section{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3);margin-bottom:14px}
+
+/* Template Cards */
+.tcard{
+  width:100%;border-radius:var(--r20);overflow:hidden;cursor:pointer;
+  background:var(--s1);border:1px solid var(--bd);
+  transition:transform .28s cubic-bezier(.16,1,.3,1),border-color .22s,box-shadow .22s;
+  box-shadow:0 16px 48px rgba(0,0,0,.4);
+  animation:fadeUp .5s cubic-bezier(.16,1,.3,1) both;
+}
+.tcard:hover{transform:translateY(-4px);border-color:rgba(124,109,255,.3);box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(124,109,255,.1)}
+.tcard:active{transform:scale(.98)}
+.tcard+.tcard{margin-top:14px}
+.tcard-stripe{height:2px;background:linear-gradient(90deg,transparent,var(--acc),var(--acc2),transparent)}
+.tcard-stripe.red{background:linear-gradient(90deg,transparent,#f87171,#fb923c,transparent)}
+.tcard-inner{padding:22px 20px 18px;display:flex;align-items:flex-start;gap:16px}
+.tcard-icon{
+  width:48px;height:48px;flex-shrink:0;border-radius:14px;font-size:20px;
+  background:linear-gradient(135deg,rgba(124,109,255,.12),rgba(167,139,250,.08));
+  border:1px solid rgba(124,109,255,.15);display:flex;align-items:center;justify-content:center;
+}
+.tcard-icon.red{background:linear-gradient(135deg,rgba(248,113,113,.12),rgba(251,146,60,.08));border-color:rgba(248,113,113,.15)}
+.tcard-meta{flex:1;min-width:0}
+.tcard-badge{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:rgba(124,109,255,.65);margin-bottom:4px}
+.tcard-badge.red{color:rgba(248,113,113,.65)}
+.tcard-name{font-family:'Syne',sans-serif;font-size:19px;font-weight:700;letter-spacing:-.3px;color:var(--tx);margin-bottom:4px}
+.tcard-desc{font-size:12.5px;color:var(--tx3);line-height:1.65}
+.tcard-footer{
+  padding:12px 20px 16px;
+  border-top:1px solid var(--bd);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.tcard-tags{display:flex;gap:6px;flex-wrap:wrap}
+.tcard-tag{
+  font-size:10px;font-weight:600;color:var(--tx3);
+  background:rgba(255,255,255,.03);border:1px solid var(--bd);
+  border-radius:50px;padding:3px 9px;
+}
+.tcard-go{
+  width:28px;height:28px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(124,109,255,.1);border:1px solid rgba(124,109,255,.15);
+  color:var(--acc2);font-size:11px;transition:all .22s;flex-shrink:0;
+}
+.tcard:hover .tcard-go{background:rgba(124,109,255,.22);transform:translateX(2px)}
+
+/* SO MENU */
+.so-menu{
+  position:fixed;top:68px;right:16px;z-index:500;
+  background:#0c0a1a;border:1px solid var(--bd);border-radius:var(--r16);
+  padding:8px;min-width:200px;display:none;
+  box-shadow:0 16px 48px rgba(0,0,0,.7);animation:fadeUp .18s ease both;
+}
+.so-menu.open{display:block}
+.so-info{padding:10px 12px 12px;border-bottom:1px solid var(--bd);margin-bottom:6px}
+.so-name{font-weight:700;font-size:14px;color:var(--tx)}
+.so-hint{font-size:11px;color:var(--tx3);margin-top:2px}
+.so-btn{
+  display:flex;align-items:center;gap:9px;width:100%;background:none;border:none;
+  color:rgba(248,113,113,.8);padding:10px 12px;border-radius:var(--r8);
+  font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;
+  transition:background .15s;
+}
+.so-btn:hover{background:rgba(248,113,113,.08)}
+
+/* ═══════════════ CHAT ═══════════════ */
+#screen-chat{flex-direction:column;overflow:hidden;background:var(--bg)}
+
+.ch-nav{
+  flex-shrink:0;display:flex;align-items:center;gap:10px;
+  padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top));
+  background:rgba(3,3,8,.95);backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--bd);z-index:10;
+}
+.ch-back{
+  width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.04);border:1px solid var(--bd);color:var(--tx2);font-size:13px;cursor:pointer;
+  transition:all .2s;
+}
+.ch-back:hover{background:rgba(255,255,255,.08);color:var(--tx)}
+.ch-nav-mid{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+.ch-nav-icon{
+  width:32px;height:32px;border-radius:10px;flex-shrink:0;
+  background:linear-gradient(135deg,rgba(124,109,255,.18),rgba(167,139,250,.12));
+  border:1px solid rgba(124,109,255,.18);
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+}
+.ch-nav-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-hist-btn{
+  display:flex;align-items:center;gap:6px;
+  background:rgba(255,255,255,.04);border:1px solid var(--bd);
+  border-radius:var(--r8);padding:7px 12px;color:var(--tx2);
+  font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;
+  transition:all .2s;white-space:nowrap;
+}
+.ch-hist-btn:hover{background:rgba(255,255,255,.07);color:var(--tx)}
+
+.ch-msgs{
+  flex:1;overflow-y:auto;overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding:18px 14px 10px;display:flex;flex-direction:column;gap:10px;
+}
+.ch-empty{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:14px;color:var(--tx2);text-align:center;padding:40px 20px;
+}
+.ch-empty-icon{
+  width:64px;height:64px;border-radius:20px;font-size:28px;
+  background:linear-gradient(135deg,rgba(124,109,255,.1),rgba(167,139,250,.06));
+  border:1px solid rgba(124,109,255,.12);display:flex;align-items:center;justify-content:center;
+  animation:float 4s ease-in-out infinite;
+}
+.ch-empty-title{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:rgba(255,255,255,.45)}
+.ch-empty-sub{font-size:13px;color:var(--tx3);line-height:1.65;max-width:220px}
+
+/* Messages */
+.msg-user{
+  align-self:flex-end;max-width:82%;
+  background:linear-gradient(135deg,rgba(92,77,224,.18),rgba(124,109,255,.12));
+  border:1px solid rgba(124,109,255,.2);border-radius:16px 16px 4px 16px;
+  padding:11px 15px;font-size:14px;color:rgba(255,255,255,.88);line-height:1.6;
+  white-space:pre-wrap;word-break:break-word;animation:fadeUp .25s ease both;
+}
+.msg-thinking{
+  align-self:flex-start;display:inline-flex;align-items:center;gap:10px;
+  background:rgba(255,255,255,.03);border:1px solid var(--bd);
+  border-radius:16px 16px 16px 4px;padding:10px 14px;
+  font-size:13px;color:var(--tx2);animation:fadeUp .25s ease both;
+}
+.dots{display:flex;gap:4px;align-items:center}
+.dots span{width:6px;height:6px;border-radius:50%;background:rgba(124,109,255,.6);animation:dot 1.4s ease infinite}
+.dots span:nth-child(2){animation-delay:.2s}
+.dots span:nth-child(3){animation-delay:.4s}
+
+.msg-error{
+  align-self:flex-start;background:rgba(248,113,113,.06);
+  border:1px solid rgba(248,113,113,.14);border-radius:12px;
+  padding:10px 14px;font-size:13px;color:#fca5a5;
+  display:flex;align-items:flex-start;gap:8px;animation:fadeUp .25s ease both;
+  line-height:1.55;
+}
+
+/* Image group */
+.img-group{align-self:flex-start;width:100%;display:flex;flex-direction:column;gap:8px}
+.group-hd{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  background:rgba(255,255,255,.03);border:1px solid var(--bd);
+  border-radius:var(--r8);padding:9px 13px;font-size:12px;color:var(--tx2);flex-wrap:wrap;
+}
+.group-hd-l{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.dl-all-btn{
+  display:flex;align-items:center;gap:7px;
+  background:linear-gradient(135deg,rgba(92,77,224,.2),rgba(124,109,255,.14));
+  border:1px solid rgba(124,109,255,.28);border-radius:var(--r8);
+  padding:7px 14px;font-size:12px;font-weight:700;color:var(--acc3);
+  cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;white-space:nowrap;
+}
+.dl-all-btn:hover{transform:translateY(-1px);background:linear-gradient(135deg,rgba(92,77,224,.28),rgba(124,109,255,.2))}
+.dl-all-btn:active{transform:scale(.96)}
+.img-row{display:flex;flex-direction:column;gap:8px}
+.img-card{
+  background:rgba(255,255,255,.02);border:1px solid var(--bd);
+  border-radius:var(--r16);padding:12px;
+  animation:fadeUp .3s cubic-bezier(.16,1,.3,1) both;
+  cursor:pointer;transition:all .22s;
+}
+.img-card:hover{background:rgba(255,255,255,.04);border-color:rgba(124,109,255,.18)}
+.img-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.img-card-title{font-size:13px;font-weight:600;color:rgba(255,255,255,.7);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.img-card-dl{
+  width:28px;height:28px;border-radius:var(--r8);
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(92,77,224,.12);border:1px solid rgba(92,77,224,.2);
+  color:var(--acc2);font-size:11px;cursor:pointer;transition:all .2s;flex-shrink:0;
+}
+.img-card-dl:hover{background:rgba(92,77,224,.22);transform:translateY(-1px)}
+canvas.img-canvas{width:100%;aspect-ratio:9/16;border-radius:10px;background:#000;cursor:pointer}
+
+/* Video group */
+.vid-group{align-self:flex-start;width:100%;display:flex;flex-direction:column;gap:8px}
+.vid-status{
+  display:flex;align-items:center;gap:9px;
+  background:rgba(255,255,255,.03);border:1px solid var(--bd);
+  border-radius:var(--r8);padding:10px 14px;font-size:13px;color:var(--tx2);
+}
+.vid-card{background:rgba(255,255,255,.02);border:1px solid var(--bd);border-radius:var(--r16);padding:12px;animation:fadeUp .3s cubic-bezier(.16,1,.3,1) both}
+.vid-card video{width:100%;aspect-ratio:9/16;border-radius:10px;background:#000;object-fit:cover}
+.vid-actions{display:flex;gap:7px;margin-top:10px}
+.vid-btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+  background:linear-gradient(135deg,rgba(92,77,224,.18),rgba(124,109,255,.12));
+  border:1px solid rgba(124,109,255,.24);border-radius:var(--r8);
+  padding:9px 12px;font-size:12px;font-weight:600;color:var(--acc3);
+  cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;
+}
+.vid-btn:hover{transform:translateY(-1px);background:linear-gradient(135deg,rgba(92,77,224,.25),rgba(124,109,255,.18))}
+
+.session-sep{
+  align-self:center;font-size:10px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--tx3);padding:4px 0;margin:6px 0;
+}
+
+/* Duration row */
+.dur-row{
+  display:flex;align-items:center;gap:10px;
+  background:rgba(255,255,255,.03);border:1px solid var(--bd);
+  border-radius:var(--r12);padding:9px 14px;margin:0 12px 6px;
+}
+.dur-label{font-size:12px;color:var(--tx3);white-space:nowrap;font-weight:500}
+.dur-slider{flex:1;accent-color:var(--acc2);cursor:pointer}
+.dur-val{font-size:13px;font-weight:700;color:var(--acc2);min-width:36px;text-align:right}
+
+/* Input bar */
+.ch-input-bar{
+  flex-shrink:0;display:flex;align-items:flex-end;gap:8px;
+  padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom));
+  background:rgba(3,3,8,.97);backdrop-filter:blur(20px);
+  border-top:1px solid var(--bd);
+}
+.ch-ta{
+  flex:1;background:rgba(255,255,255,.04);border:1px solid var(--bd);
+  border-radius:var(--r16);padding:11px 15px;color:var(--tx);
+  font-size:14px;font-family:'DM Sans',sans-serif;outline:none;
+  resize:none;transition:border-color .2s;max-height:140px;overflow-y:auto;
+}
+.ch-ta:focus{border-color:rgba(92,77,224,.4)}
+.ch-ta::placeholder{color:var(--tx3)}
+.ch-send-btn{
+  width:42px;height:42px;flex-shrink:0;border-radius:50%;
+  background:linear-gradient(135deg,#5b4de0,#7c6dff);
+  border:none;color:#fff;font-size:15px;cursor:pointer;
+  transition:all .2s;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 18px rgba(92,77,224,.4);
+}
+.ch-send-btn:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(92,77,224,.5)}
+.ch-send-btn:active{transform:scale(.93)}
+.ch-send-btn:disabled{opacity:.45;cursor:wait;transform:none}
+
+/* ═══════════════ HISTORY ═══════════════ */
+.hist-panel{position:fixed;inset:0;z-index:100;display:none;pointer-events:none}
+.hist-panel.open{display:block;pointer-events:auto}
+.hist-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(6px);animation:fadeIn .2s ease both}
+.hist-drawer{
+  position:fixed;right:0;top:0;bottom:0;width:min(88%,380px);
+  background:#090818;border-left:1px solid var(--bd);
+  display:flex;flex-direction:column;
+  animation:slidein .3s cubic-bezier(.16,1,.3,1) both;
+  box-shadow:-12px 0 48px rgba(0,0,0,.6);
+}
+.hist-head{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  padding:20px 18px;border-bottom:1px solid var(--bd);gap:10px;flex-shrink:0;
+}
+.hist-head-txt{font-family:'Syne',sans-serif;font-size:19px;font-weight:700;letter-spacing:-.3px}
+.hist-sub{font-size:11px;color:var(--tx3);margin-top:3px}
+.hist-close{
+  width:32px;height:32px;border-radius:var(--r8);
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.04);border:1px solid var(--bd);
+  color:var(--tx2);font-size:14px;cursor:pointer;transition:all .2s;flex-shrink:0;
+}
+.hist-close:hover{background:rgba(255,255,255,.08);color:var(--tx)}
+.hist-list{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
+.hist-empty{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:10px;color:var(--tx2);text-align:center;padding:40px;
+}
+.hist-empty-icon{font-size:40px;opacity:.25}
+.hist-empty-txt{font-size:14px;color:var(--tx3)}
+.hist-item{
+  background:rgba(255,255,255,.02);border:1px solid var(--bd);
+  border-radius:var(--r12);padding:12px 14px;cursor:pointer;transition:all .2s;
+}
+.hist-item:hover{background:rgba(255,255,255,.04);border-color:rgba(124,109,255,.18)}
+.hist-item-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.hist-item-date{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--tx3)}
+.hist-item-del{
+  width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  background:transparent;border:1px solid transparent;color:var(--tx3);font-size:10px;
+  cursor:pointer;transition:all .2s;
+}
+.hist-item-del:hover{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.2);color:#fca5a5}
+.hist-item-label{font-size:13px;font-weight:500;color:rgba(255,255,255,.65);line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hist-item-status{font-size:11px;color:var(--tx3);margin-top:5px}
+.hist-item-status.ok{color:var(--gn)}
+.hist-item-status.err{color:var(--rd)}
+.hist-item-badge{
+  font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  padding:2px 7px;border-radius:20px;flex-shrink:0;
+}
+.hist-item-badge.img{background:rgba(124,109,255,.12);color:var(--acc2);border:1px solid rgba(124,109,255,.2)}
+.hist-item-badge.vid{background:rgba(248,113,113,.1);color:#fca5a5;border:1px solid rgba(248,113,113,.15)}
+
+/* ═══════════════ TOAST ═══════════════ */
+.toast{
+  position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;
+  transform:translateX(-50%);z-index:300;
+  background:#0c0a1a;border:1px solid rgba(124,109,255,.22);border-radius:var(--r12);
+  padding:10px 16px;font-size:13px;font-weight:600;color:var(--tx);
+  display:none;align-items:center;gap:9px;
+  box-shadow:0 8px 32px rgba(0,0,0,.7);animation:fadeUp .2s ease both;
+  max-width:calc(100vw - 40px);
+}
+</style>
+</head>
+<body>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║           LOGIN SCREEN              ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div id="screen-login" class="screen active">
+  <div class="mesh mesh-a"></div>
+  <div class="mesh mesh-b"></div>
+  <div class="mesh mesh-c"></div>
+  <div class="login-wrap">
+    <div class="login-logo">L</div>
+    <div class="login-title">LUMA</div>
+    <div class="login-sub">AI Content Studio · Free · GitHub-powered</div>
+    <div class="login-card">
+      <div class="field-label">Your name</div>
+      <input id="login-name" class="field-input" type="text" placeholder="Enter your name" autocomplete="name">
+      <button class="btn-primary" onclick="doLogin()">Get started →</button>
+      <div id="login-err" class="login-err"></div>
+    </div>
+    <div class="login-note">
+      Powered by GitHub Actions &amp; Pages. 100% free.<br>
+      <a href="https://github.com/settings/tokens" target="_blank">Generate GitHub token</a> · <a href="#" onclick="showSetup()">Setup guide</a>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║         TEMPLATES SCREEN            ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div id="screen-templates" class="screen">
+  <div class="mesh mesh-a" style="opacity:.07"></div>
+  <div class="tmpl-nav">
+    <div class="tmpl-brand">LUMA</div>
+    <div class="user-pill" onclick="toggleSO()">
+      <div class="user-pill-av" id="user-av"></div>
+      <span id="user-name-nav"></span>
+      <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
+    </div>
+  </div>
+  <div class="tmpl-body">
+    <div id="greet" class="tmpl-greet">Hey there 👋</div>
+    <div class="tmpl-hint">Pick a generator to start creating</div>
+
+    <div class="tmpl-section">Generators</div>
+
+    <div class="tcard" onclick="openTemplate('imggen')">
+      <div class="tcard-stripe"></div>
+      <div class="tcard-inner">
+        <div class="tcard-icon">🎨</div>
+        <div class="tcard-meta">
+          <div class="tcard-badge">Image · Active</div>
+          <div class="tcard-name">Image Generator</div>
+          <div class="tcard-desc">Paste any text — AI structures it and renders each post as a stunning 9:16 image, ready to share.</div>
+        </div>
+      </div>
+      <div class="tcard-footer">
+        <div class="tcard-tags">
+          <span class="tcard-tag">9:16 format</span>
+          <span class="tcard-tag">Batch export</span>
+          <span class="tcard-tag">Groq AI</span>
+        </div>
+        <div class="tcard-go"><i class="fas fa-arrow-right"></i></div>
+      </div>
+    </div>
+
+    <div class="tcard" onclick="openTemplate('vidgen')">
+      <div class="tcard-stripe red"></div>
+      <div class="tcard-inner">
+        <div class="tcard-icon red">🎬</div>
+        <div class="tcard-meta">
+          <div class="tcard-badge red">Video · Active</div>
+          <div class="tcard-name">Video Generator</div>
+          <div class="tcard-desc">Type your text + pick a duration. A video clip renders with your overlay — stored in GitHub Releases.</div>
+        </div>
+      </div>
+      <div class="tcard-footer">
+        <div class="tcard-tags">
+          <span class="tcard-tag">9:16 video</span>
+          <span class="tcard-tag">GitHub Storage</span>
+          <span class="tcard-tag">FFmpeg</span>
+        </div>
+        <div class="tcard-go"><i class="fas fa-arrow-right"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SO Menu -->
+<div class="so-menu" id="so-menu">
+  <div class="so-info">
+    <div class="so-name" id="so-name"></div>
+    <div class="so-hint">Local session only</div>
+  </div>
+  <button class="so-btn" onclick="signOut()"><i class="fas fa-right-from-bracket"></i> Sign out</button>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║            CHAT SCREEN              ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div id="screen-chat" class="screen">
+  <div class="ch-nav">
+    <button class="ch-back" onclick="show('templates')"><i class="fas fa-arrow-left"></i></button>
+    <div class="ch-nav-mid">
+      <div class="ch-nav-icon" id="ch-icon">🎨</div>
+      <div class="ch-nav-title" id="ch-title">Image Generator</div>
+    </div>
+    <button class="ch-hist-btn" onclick="openHistory()"><i class="fas fa-clock-rotate-left"></i> History</button>
+  </div>
+
+  <div id="ch-msgs" class="ch-msgs">
+    <div class="ch-empty" id="ch-empty">
+      <div class="ch-empty-icon">✨</div>
+      <div class="ch-empty-title">Ready to create</div>
+      <div class="ch-empty-sub">Paste your content below and hit send.</div>
+    </div>
+  </div>
+
+  <div id="dur-row" class="dur-row" style="display:none">
+    <i class="fas fa-clock" style="color:var(--tx3);font-size:12px"></i>
+    <span class="dur-label">Duration</span>
+    <input id="dur-input" class="dur-slider" type="range" min="10" max="120" value="30" step="5"
+      oninput="$('dur-val').textContent=this.value+'s'">
+    <span id="dur-val" class="dur-val">30s</span>
+  </div>
+
+  <div class="ch-input-bar">
+    <textarea id="ch-ta" class="ch-ta" placeholder="Paste your content here…" rows="1"></textarea>
+    <button id="ch-send" class="ch-send-btn" onclick="sendMsg()"><i class="fas fa-arrow-up"></i></button>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║          HISTORY PANEL              ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div class="hist-panel" id="hist-panel">
+  <div class="hist-backdrop" onclick="closeHistory()"></div>
+  <div class="hist-drawer">
+    <div class="hist-head">
+      <div>
+        <div class="hist-head-txt">History</div>
+        <div class="hist-sub">Stored locally on your device</div>
+      </div>
+      <button class="hist-close" onclick="closeHistory()"><i class="fas fa-xmark"></i></button>
+    </div>
+    <div class="hist-list" id="hist-list"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast" style="display:none"></div>
+
+<script>'use strict';
+
+/* ═══════════════════════════════════════════════════════════
+   ██████  CONFIG — Edit these values after forking the repo
+   ═══════════════════════════════════════════════════════════
+   
+   1. Fork this repo on GitHub
+   2. Create a Personal Access Token: github.com/settings/tokens
+      - Required scopes: public_repo (or repo for private repos)
+   3. Create Issue #1 in your repo (any title)
+   4. Add GitHub Secrets in your repo settings:
+      - GH_PAT      → Your Personal Access Token
+      - GROQ_API_KEY → Free key from console.groq.com
+      - KAGGLE_USERNAME + KAGGLE_KEY → For video backgrounds
+   5. Enable GitHub Pages: Settings → Pages → Deploy from branch: main / root
+   6. Fill in your values below and save
+   ═══════════════════════════════════════════════════════════ */
+
+const CFG = {
+  owner:  'YOUR_GITHUB_USERNAME',   // ← Your GitHub username
+  repo:   'YOUR_REPO_NAME',         // ← Your repo name (e.g. "luma")
+  issue:  1,                        // ← Issue number (create Issue #1 first)
+  token:  'ghp_YOUR_TOKEN_HERE',    // ← Your GitHub Personal Access Token
+};
+
+/* ═══ DERIVED ═══ */
+const RAW = `https://raw.githubusercontent.com/${CFG.owner}/${CFG.repo}/main/api/status`;
+const API = 'https://api.github.com';
+
+/* ═══ STATE ═══ */
+let _user = null, _tpl = 'imggen', _poll = null, _seen = 0;
+const _svgs = {}, _titles = {}, _pngs = {};
+const LS_U = 'luma_v2_user', LS_H = 'luma_v2_hist';
+
+/* ═══════════════════════════════════════════════════════════
+   AUTH & LOGIN
+   ═══════════════════════════════════════════════════════════ */
+function doLogin() {
+  const n = $('login-name').value.trim();
+  const e = $('login-err');
+  if (!n) { showErr(e, 'Please enter your name.'); return; }
+  if (!CFG.token || CFG.token.startsWith('ghp_YOUR')) {
+    showErr(e, '⚠️ Setup required: Open index.html and add your GitHub token to the CFG object at the top of the script. See the setup guide for help.');
+    return;
+  }
+  e.style.display = 'none';
+  const u = { name: n, id: 'u' + Math.random().toString(36).slice(2,10), ts: Date.now() };
+  ls(LS_U, u);
+  _user = u;
+  enterApp();
+}
+
+function enterApp() {
+  const n = _user.name.split(' ')[0];
+  $('user-name-nav').textContent = n;
+  $('user-av').textContent = n[0].toUpperCase();
+  $('so-name').textContent = _user.name;
+  const h = new Date().getHours();
+  $('greet').textContent = `${h<12?'Good morning':h<17?'Good afternoon':'Good evening'}, ${n} 👋`;
+  show('templates');
+}
+
+function signOut() {
+  localStorage.removeItem(LS_U);
+  _user = null;
+  $('so-menu').classList.remove('open');
+  show('login');
+}
+function toggleSO() { $('so-menu').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const m = $('so-menu');
+  if (m.classList.contains('open') && !e.target.closest('.user-pill') && !e.target.closest('.so-menu'))
+    m.classList.remove('open');
+});
+
+function showSetup() {
+  showErr($('login-err'),
+    'Setup: 1) Fork this repo. 2) Add secrets: GH_PAT, GROQ_API_KEY. 3) Enable GitHub Pages (Settings → Pages → main / root). 4) Edit CFG in index.html with your username, repo, and token. 5) Create Issue #1.',
+    true
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GITHUB API
+   ═══════════════════════════════════════════════════════════ */
+async function ghComment(type, payload) {
+  const prefix = type === 'render-video' ? 'LUMA_VID' : 'LUMA_IMG';
+  const body   = prefix + ':' + JSON.stringify(payload);
+  const r = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/issues/${CFG.issue}/comments`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'token ' + CFG.token,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    },
+    body: JSON.stringify({ body })
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    const msgs = {
+      401: 'Token invalid or expired. Check your GitHub Personal Access Token.',
+      403: `No permission. Ensure token has 'public_repo' scope and you own ${CFG.owner}/${CFG.repo}.`,
+      404: `Repo or issue not found. Check CFG.owner="${CFG.owner}", CFG.repo="${CFG.repo}", CFG.issue=${CFG.issue}.`
+    };
+    throw new Error(msgs[r.status] || `GitHub ${r.status}: ${err.message || 'Unknown error'}`);
+  }
+}
+
+async function pollStatus(jobId) {
+  const r = await fetch(`${RAW}/${jobId}.json?t=${Date.now()}`);
+  if (!r.ok) return null;
+  return r.json();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HISTORY
+   ═══════════════════════════════════════════════════════════ */
+function getHist()     { try { return JSON.parse(localStorage.getItem(LS_H)||'[]'); } catch { return []; } }
+function setHist(h)    { try { localStorage.setItem(LS_H, JSON.stringify(h.slice(0,50))); } catch {} }
+function addHist(e)    { const h=getHist(); h.unshift(e); setHist(h); }
+function delHist(jid)  { setHist(getHist().filter(e=>e.jobId!==jid)); }
+function updateHist(jid,upd){ const h=getHist(); const e=h.find(x=>x.jobId===jid); if(e) Object.assign(e,upd); setHist(h); }
+
+/* ═══════════════════════════════════════════════════════════
+   SCREENS
+   ═══════════════════════════════════════════════════════════ */
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  $('screen-' + id).classList.add('active');
+  if (id==='chat') scrollDown();
+}
+
+function openTemplate(id) {
+  _tpl = id;
+  const vid = id === 'vidgen';
+  $('ch-icon').textContent  = vid ? '🎬' : '🎨';
+  $('ch-title').textContent = vid ? 'Video Generator' : 'Image Generator';
+  $('dur-row').style.display = vid ? 'flex' : 'none';
+  $('ch-ta').placeholder = vid ? 'Type the text to overlay on your video…' : 'Paste your content here…';
+  clearChat();
+  show('chat');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SEND
+   ═══════════════════════════════════════════════════════════ */
+async function sendMsg() {
+  const ta   = $('ch-ta');
+  const text = ta.value.trim();
+  if (!text || _poll) return;
+
+  ta.value = ''; resize(ta);
+  busy(true);
+  hideEmpty();
+  addUserMsg(text);
+
+  const thinkId = 't' + Date.now();
+  const jobId   = `j-${_user.id}-${Date.now()}`;
+
+  if (_tpl === 'vidgen') {
+    addThink(thinkId, 'Sending to GitHub Actions…');
+    scrollDown();
+    try {
+      await ghComment('render-video', {
+        jobId,
+        overlayText: text.slice(0, 200),
+        duration: parseInt($('dur-input')?.value||'30', 10),
+        deviceId: _user.id
+      });
+      $v(thinkId);
+      addHist({ jobId, label: text.slice(0,80), tpl:'vidgen', ts: Date.now(), status:'processing' });
+      addVidGroup(jobId);
+      scrollDown();
+      _poll = setInterval(() => pollVid(jobId), 5000);
+    } catch(e) {
+      $v(thinkId);
+      addErrMsg(e.message);
+      busy(false);
+    }
+
+  } else {
+    addThink(thinkId, 'Sending to GitHub Actions…');
+    scrollDown();
+    try {
+      await ghComment('render-image', { jobId, text, deviceId: _user.id });
+      $v(thinkId);
+      _seen = 0;
+      addHist({ jobId, label: text.slice(0,80), tpl:'imggen', ts: Date.now(), status:'processing' });
+      addImgGroup(jobId);
+      scrollDown();
+      _poll = setInterval(() => pollImg(jobId), 8000);
+    } catch(e) {
+      $v(thinkId);
+      addErrMsg(e.message);
+      busy(false);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   POLLING
+   ═══════════════════════════════════════════════════════════ */
+async function pollImg(jobId) {
+  try {
+    const job = await pollStatus(jobId);
+    if (!job) return;
+    const results = job.results || [];
+    if (!_titles[jobId]) _titles[jobId] = [];
+    results.forEach((r,i) => { if(r.title) _titles[jobId][i]=r.title; });
+    for (let i = _seen; i < results.length; i++) { addImgCard(jobId, results[i], i); _seen++; }
+    updateGroupHd(jobId, job.done||results.length, job.total||results.length, job.status);
+    scrollDown();
+    if (job.status==='done'||job.status==='error') {
+      clearInterval(_poll); _poll=null; busy(false);
+      if (job.status==='error') addErrMsg(job.error||'Generation failed.');
+      updateHist(jobId, { status: job.status });
+    }
+  } catch {}
+}
+
+async function pollVid(jobId) {
+  try {
+    const job = await pollStatus(jobId);
+    if (!job) return;
+    updateVidStatus(jobId, job);
+    if (job.status==='done'||job.status==='error') {
+      clearInterval(_poll); _poll=null; busy(false);
+      if (job.status==='done' && job.videoUrl) showVidCard(jobId, job.videoUrl, job.label||'Video');
+      else if (job.status==='error') addErrMsg(job.error||'Video render failed.');
+      updateHist(jobId, { status: job.status, videoUrl: job.videoUrl });
+    }
+  } catch {}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DOM BUILDERS
+   ═══════════════════════════════════════════════════════════ */
+function addUserMsg(t) { mkEl('div','msg-user',t); }
+function addThink(id,m) {
+  const d=document.createElement('div');
+  d.className='msg-thinking';d.id=id;
+  d.innerHTML=`<div class="dots"><span></span><span></span><span></span></div>${xe(m||'Processing…')}`;
+  msgs().appendChild(d);
+}
+function addErrMsg(m) {
+  const d=document.createElement('div');
+  d.className='msg-error';
+  d.innerHTML=`<i class="fas fa-triangle-exclamation" style="flex-shrink:0;margin-top:1px"></i><span>${xe(m)}</span>`;
+  msgs().appendChild(d); scrollDown();
+}
+function addSessionSep(ts) { mkEl('div','session-sep',new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})); }
+
+/* Image group */
+function addImgGroup(jobId) {
+  const d=document.createElement('div');
+  d.className='img-group';d.id=`grp-${xe(jobId)}`;
+  d.innerHTML=`
+    <div class="group-hd" id="ghd-${xe(jobId)}">
+      <div class="group-hd-l">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>Waiting for GitHub Actions…&nbsp;(~60s)</span>
+      </div>
+    </div>
+    <div class="img-row" id="row-${xe(jobId)}"></div>`;
+  msgs().appendChild(d);
+}
+function updateGroupHd(jobId,done,total,status) {
+  const hd=$(`ghd-${jobId}`);if(!hd)return;
+  if(status==='done'){
+    const j=xe(jobId);
+    hd.innerHTML=`
+      <div class="group-hd-l">
+        <i class="fas fa-check" style="color:var(--gn)"></i>
+        <span>${done} image${done!==1?'s':''} ready</span>
+      </div>
+      <button class="dl-all-btn" id="dla-${j}" onclick="dlAll('${j}',${done})">
+        <i class="fas fa-cloud-arrow-down"></i> Download All (${done})
+      </button>`;
+  } else if(status==='processing'){
+    const sp=hd.querySelector('.group-hd-l span');
+    if(sp) sp.textContent=`Processing ${done} of ${total}…`;
+  }
+}
+function addImgCard(jobId,item,idx) {
+  if(!item||!item.svg) return;
+  const row=$(`row-${jobId}`);if(!row)return;
+  const k=jobId+':'+idx;
+  _svgs[k]=item.svg;
+  const d=document.createElement('div');d.className='img-card';d.id=`card-${xe(k)}`;
+  d.innerHTML=`
+    <div class="img-card-top">
+      <div class="img-card-title">${xe(item.title||`Image ${idx+1}`)}</div>
+      <button class="img-card-dl" onclick="dlOne('${xe(k)}')"><i class="fas fa-download"></i></button>
+    </div>
+    <canvas class="img-canvas" id="cnv-${xe(k)}"></canvas>`;
+  row.appendChild(d);
+  drawCanvas(k);
+}
+function drawCanvas(k) {
+  requestAnimationFrame(()=>{
+    const c=$('cnv-'+k);if(!c||!_svgs[k])return;
+    const ctx=c.getContext('2d');c.width=1080;c.height=1920;
+    const i=new Image();
+    i.onload=()=>ctx.drawImage(i,0,0,1080,1920);
+    i.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(_svgs[k]);
+  });
+}
+
+/* Video group */
+function addVidGroup(jobId) {
+  const d=document.createElement('div');d.className='vid-group';d.id=`vg-${xe(jobId)}`;
+  d.innerHTML=`<div class="vid-status" id="vs-${xe(jobId)}">
+    <div class="dots"><span></span><span></span><span></span></div>
+    <span>Waiting for GitHub Actions…&nbsp;(~60s)</span>
+  </div>`;
+  msgs().appendChild(d);
+}
+function updateVidStatus(jobId,job) {
+  const s=$(`vs-${jobId}`);if(!s)return;
+  if(job.status==='processing'){ const sp=s.querySelector('span');if(sp)sp.textContent=job.progress||'Processing video…'; }
+}
+function showVidCard(jobId,url,label) {
+  const g=$(`vg-${jobId}`);if(!g)return;
+  $(`vs-${jobId}`)?.remove();
+  const d=document.createElement('div');d.className='vid-card';
+  d.innerHTML=`
+    <video controls playsinline><source src="${xe(url)}" type="video/mp4"></video>
+    <div class="vid-actions">
+      <button class="vid-btn" onclick="window.open('${xe(url)}','_blank')"><i class="fas fa-external-link-alt"></i> Open</button>
+      <button class="vid-btn" onclick="dlVid('${xe(url)}','${xe(label)}')"><i class="fas fa-download"></i> Download</button>
+    </div>`;
+  g.appendChild(d);scrollDown();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DOWNLOADS
+   ═══════════════════════════════════════════════════════════ */
+async function dlOne(k) {
+  const b=await toPng(k);if(!b)return;
+  const [jid,idx]=k.split(':');
+  const title=(_titles[jid]&&_titles[jid][+idx])||`image_${+idx+1}`;
+  trigDl(b,title.replace(/[^a-z0-9]/gi,'_')+'.png');
+  toast('Image downloaded ✓');
+}
+async function dlAll(jobId,count) {
+  const btn=$('dla-'+jobId);if(!btn)return;
+  btn.disabled=true;btn.innerHTML='<i class="fas fa-spinner spin"></i> Preparing…';
+  const JSZip=(await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm')).default;
+  const zip=new JSZip();
+  for(let i=0;i<count;i++){
+    const k=jobId+':'+i;
+    const b=await toPng(k);
+    if(b){ const t=(_titles[jobId]&&_titles[jobId][i])||`image_${i+1}`; zip.file(t.replace(/[^a-z0-9]/gi,'_')+'.png',b); }
+  }
+  trigDl(await zip.generateAsync({type:'blob'}),'luma_images.zip');
+  btn.disabled=false;btn.innerHTML=`<i class="fas fa-cloud-arrow-down"></i> Download All (${count})`;
+  toast(`${count} images downloaded ✓`);
+}
+function dlVid(url,label) {
+  const a=Object.assign(document.createElement('a'),{href:url,download:(label||'video').replace(/[^a-z0-9]/gi,'_')+'.mp4',target:'_blank'});
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  toast('Video download started ✓');
+}
+async function toPng(k) {
+  if(_pngs[k])return _pngs[k];
+  const svg=_svgs[k];if(!svg)return null;
+  return new Promise(res=>{
+    const img=new Image(),c=document.createElement('canvas');
+    c.width=1080;c.height=1920;
+    img.onload=()=>{c.getContext('2d').drawImage(img,0,0,1080,1920);c.toBlob(b=>{_pngs[k]=b;res(b||null)},'image/png');};
+    img.onerror=()=>res(null);
+    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+  });
+}
+function trigDl(blob,name){const url=URL.createObjectURL(blob),a=Object.assign(document.createElement('a'),{href:url,download:name});document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);}
+
+/* ═══════════════════════════════════════════════════════════
+   HISTORY PANEL
+   ═══════════════════════════════════════════════════════════ */
+function openHistory() { renderHist(getHist()); $('hist-panel').classList.add('open'); }
+function closeHistory(){ $('hist-panel').classList.remove('open'); }
+function renderHist(h) {
+  const list=$('hist-list');
+  if(!h||!h.length){ list.innerHTML='<div class="hist-empty"><div class="hist-empty-icon">📭</div><div class="hist-empty-txt">No history yet</div></div>'; return; }
+  list.innerHTML=h.map(e=>{
+    const d=new Date(e.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const sc=e.status==='done'?'ok':e.status==='error'?'err':'';
+    const st=e.status==='done'?'Complete':e.status==='error'?'Failed':'In progress';
+    const badge=e.tpl==='vidgen'?'<span class="hist-item-badge vid">Video</span>':'<span class="hist-item-badge img">Image</span>';
+    return `<div class="hist-item" onclick="loadSess('${xe(e.jobId)}')">
+      <div class="hist-item-top">
+        <div class="hist-item-date">${d}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          ${badge}
+          <button class="hist-item-del" onclick="delSess(event,'${xe(e.jobId)}')"><i class="fas fa-trash-can"></i></button>
+        </div>
+      </div>
+      <div class="hist-item-label">${xe(e.label)}</div>
+      <div class="hist-item-status ${sc}">${st}</div>
+    </div>`;
+  }).join('');
+}
+
+async function loadSess(jobId) {
+  closeHistory(); clearChat();
+  const tid='hl'+Date.now();
+  addThink(tid,'Loading session…');scrollDown();
+  try {
+    const job=await pollStatus(jobId);
+    $v(tid);
+    if(!job){addErrMsg('Session not found. It may have been cleared from GitHub.');return;}
+    addSessionSep(job.timestamp);
+    if(job.template==='vidgen'){
+      addVidGroup(jobId);
+      if(job.status==='done'&&job.videoUrl) showVidCard(jobId,job.videoUrl,job.label||'Video');
+    } else {
+      if(!_titles[jobId])_titles[jobId]=[];
+      (job.results||[]).forEach((r,i)=>{if(r.title)_titles[jobId][i]=r.title;});
+      addImgGroup(jobId);
+      for(let i=0;i<(job.results||[]).length;i++) addImgCard(jobId,job.results[i],i);
+      updateGroupHd(jobId,job.done,job.total,job.status);
+    }
+    scrollDown();
+  } catch(e){ $v(tid);addErrMsg('Failed to load: '+e.message); }
+}
+function delSess(e,jid){ e.stopPropagation();delHist(jid);renderHist(getHist()); }
+
+/* ═══════════════════════════════════════════════════════════
+   UTILS
+   ═══════════════════════════════════════════════════════════ */
+function $(id)  { return document.getElementById(id); }
+function $v(id) { $(id)?.remove(); }
+function xe(s)  { return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function msgs() { return $('ch-msgs'); }
+function hideEmpty(){ const e=$('ch-empty');if(e)e.style.display='none'; }
+function clearChat(){
+  const m=msgs();m.innerHTML='';_seen=0;
+  const e=document.createElement('div');e.className='ch-empty';e.id='ch-empty';
+  e.innerHTML='<div class="ch-empty-icon">✨</div><div class="ch-empty-title">Ready to create</div><div class="ch-empty-sub">Paste your content below and hit send.</div>';
+  m.appendChild(e);
+}
+function scrollDown(){ const m=msgs();requestAnimationFrame(()=>{m.scrollTop=m.scrollHeight;}); }
+function busy(b){ const s=$('ch-send');if(s)s.disabled=b; }
+function resize(ta){ ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,140)+'px'; }
+function ls(k,v){ try{localStorage.setItem(k,JSON.stringify(v));}catch{} }
+function showErr(el,msg,big){ el.textContent=msg;el.style.display='block';if(big)el.style.lineHeight='1.65'; }
+function mkEl(tag,cls,text){ const d=document.createElement(tag);d.className=cls;d.textContent=text;msgs().appendChild(d); }
+let _toast;
+function toast(m){ const t=$('toast');t.innerHTML=`<i class="fas fa-circle-check" style="color:var(--gn)"></i>${xe(m)}`;t.style.display='flex';clearTimeout(_toast);_toast=setTimeout(()=>t.style.display='none',2800); }
+
+/* ═══════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  try { const s=localStorage.getItem(LS_U); if(s){_user=JSON.parse(s);enterApp();} } catch {}
+  const ta=$('ch-ta');
+  if(ta){
+    ta.addEventListener('input',()=>resize(ta));
+    ta.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();} });
+  }
+});
+</script>
+</body>
+</html>
