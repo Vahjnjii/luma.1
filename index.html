@@ -618,14 +618,14 @@ canvas.img-canvas{width:100%;aspect-ratio:9/16;border-radius:10px;background:#00
    ═══════════════════════════════════════════════════════════ */
 
 const CFG = {
-  owner:  'YOUR_GITHUB_USERNAME',   // ← Your GitHub username
-  repo:   'YOUR_REPO_NAME',         // ← Your repo name (e.g. "luma")
-  issue:  1,                        // ← Issue number (create Issue #1 first)
-  token:  'ghp_YOUR_TOKEN_HERE',    // ← Your GitHub Personal Access Token
+  owner:  'Vahjnjii',
+  repo:   'luma.1',
+  issue:  1,
+  worker: 'https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev', // ← Paste your Cloudflare Worker URL here
 };
 
 /* ═══ DERIVED ═══ */
-const RAW = `https://raw.githubusercontent.com/${CFG.owner}/${CFG.repo}/main/api/status`;
+const RAW = `https://raw.githubusercontent.com/Vahjnjii/luma.1/main/api/status`;
 const API = 'https://api.github.com';
 
 /* ═══ STATE ═══ */
@@ -640,8 +640,8 @@ function doLogin() {
   const n = $('login-name').value.trim();
   const e = $('login-err');
   if (!n) { showErr(e, 'Please enter your name.'); return; }
-  if (!CFG.token || CFG.token.startsWith('ghp_YOUR')) {
-    showErr(e, '⚠️ Setup required: Open index.html and add your GitHub token to the CFG object at the top of the script. See the setup guide for help.');
+  if (!CFG.worker || CFG.worker.includes('YOUR_WORKER')) {
+    showErr(e, '⚠️ Setup required: Add your Cloudflare Worker URL to CFG.worker in index.html. See README for help.');
     return;
   }
   e.style.display = 'none';
@@ -687,24 +687,26 @@ function showSetup() {
 async function ghComment(type, payload) {
   const prefix = type === 'render-video' ? 'LUMA_VID' : 'LUMA_IMG';
   const body   = prefix + ':' + JSON.stringify(payload);
-  const r = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/issues/${CFG.issue}/comments`, {
+
+  // Call your Cloudflare Worker — token is hidden inside the worker
+  const r = await fetch(CFG.worker, {
     method: 'POST',
-    headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': 'token ' + CFG.token,
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28'
-    },
-    body: JSON.stringify({ body })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      owner: CFG.owner,
+      repo:  CFG.repo,
+      issue: CFG.issue,
+      body,
+    })
   });
   if (!r.ok) {
     const err = await r.json().catch(() => ({}));
     const msgs = {
-      401: 'Token invalid or expired. Check your GitHub Personal Access Token.',
-      403: `No permission. Ensure token has 'public_repo' scope and you own ${CFG.owner}/${CFG.repo}.`,
-      404: `Repo or issue not found. Check CFG.owner="${CFG.owner}", CFG.repo="${CFG.repo}", CFG.issue=${CFG.issue}.`
+      401: 'Token invalid or expired. Re-add GH_TOKEN secret in Cloudflare Worker.',
+      403: `No permission. Ensure token has 'public_repo' scope.`,
+      404: `Repo or issue not found. Check owner="${CFG.owner}", repo="${CFG.repo}", issue=${CFG.issue}.`
     };
-    throw new Error(msgs[r.status] || `GitHub ${r.status}: ${err.message || 'Unknown error'}`);
+    throw new Error(msgs[r.status] || `Error ${r.status}: ${err.error || 'Unknown'}`);
   }
 }
 
