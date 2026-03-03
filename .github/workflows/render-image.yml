@@ -39,43 +39,36 @@ jobs:
         run: |
           cat > /tmp/gen.mjs << 'JSEOF'
           import fs from 'fs';
+
           const jobId    = process.env.JOB_ID;
           const text     = fs.readFileSync('/tmp/input_text.txt','utf8').trim();
           const deviceId = process.env.DEVICE_ID;
+          const worker   = process.env.WORKER_URL;
+
           if (!jobId || !text) { console.error('Missing jobId or text'); process.exit(1); }
-          const promptLines = [
-            'Return ONLY valid JSON. No explanation. No markdown. No code fences.',
-            'Task: Split the input text into separate posts and structure as JSON.',
-            'Rules:',
-            '1. Remove any numbering from titles.',
-            '2. Copy every word emoji symbol punctuation EXACTLY.',
-            '3. Wrap zodiac signs and power words in **double asterisks**.',
-            '4. Keep all emojis exactly.',
-            'Output format only: {"posts":[{"title":"...","content":["line1","line2",""]}]}',
-            'INPUT:',
-            text,
-            'JSON:'
-          ];
-          const prompt = promptLines.join('\n');
+
+          // Call Cloudflare Worker AI endpoint
           let posts = [];
           try {
-            const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            const res = await fetch(worker + '/ai', {
               method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.GROQ_API_KEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], max_tokens: 4096, temperature: 0.1 })
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text })
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error?.message || 'Groq ' + res.status);
-            let raw = (data.choices?.[0]?.message?.content || '').replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
-            const si = raw.indexOf('{'), ei = raw.lastIndexOf('}');
-            if (si !== -1) { const p = JSON.parse(raw.slice(si, ei+1)); posts = Array.isArray(p) ? p : (p.posts||[]); }
-          } catch(e) { console.error('Groq error:', e.message); process.exit(1); }
+            if (!res.ok) throw new Error(data.error || 'Worker AI error ' + res.status);
+            posts = data.posts || [];
+            console.log('AI returned ' + posts.length + ' posts');
+          } catch(e) { console.error('Worker AI error:', e.message); process.exit(1); }
+
           if (!posts.length) { console.error('No posts parsed'); process.exit(1); }
+
           const ZODIAC = /(Aries|Taurus|Gemini|Cancer|Leo|Virgo|Libra|Scorpio|Sagittarius|Capricorn|Aquarius|Pisces)/gi;
           const bold  = t => t ? t.replace(ZODIAC,'**$1**') : t;
           const clean = t => (t||'').replace(/\*\*/g,'').trim();
           const strip = t => (t||'').replace(/^\s*(?:post\s*)?\d+\s*[.:\)]\s*/i,'').replace(/^\s*\(\d+\)\s*/,'').trim();
           posts = posts.map(p => ({ title: bold(strip(p.title||'')), content: (p.content||[]).map(l => l ? bold(l) : l) }));
+
           const BF = "'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif,'Apple Color Emoji','Noto Color Emoji'";
           const xe = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
           const isWide = ch => { const cp=ch.codePointAt(0); return cp>=0x1F000||(cp>=0x4E00&&cp<=0x9FFF)||(cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||(cp>=0x2600&&cp<=0x27FF); };
@@ -145,14 +138,14 @@ jobs:
           if (!fs.existsSync(dir)) fs.mkdirSync(dir,{recursive:true});
           const status = { jobId, deviceId, status:'done', template:'imggen', total:results.length, done:results.length, label:clean(posts[0]?.title||'Session').slice(0,80), timestamp:Date.now(), results:results.map(r=>({title:r.title,svg:r.svg,content:r.content})) };
           fs.writeFileSync(dir+'/'+jobId+'.json', JSON.stringify(status));
-          console.log('Done: '+results.length+' images -> api/status/'+jobId+'.json');
+          console.log('Done: '+results.length+' images written.');
           JSEOF
 
       - name: Run generator
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          JOB_ID:       ${{ steps.p.outputs.jobId }}
-          DEVICE_ID:    ${{ steps.p.outputs.deviceId }}
+          JOB_ID:     ${{ steps.p.outputs.jobId }}
+          DEVICE_ID:  ${{ steps.p.outputs.deviceId }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
         run: node /tmp/gen.mjs
 
       - name: Commit status
