@@ -18,6 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
+          repository: Vahjnjii/luma.1
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
