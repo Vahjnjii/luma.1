@@ -378,24 +378,94 @@ body::before{
 .img-btn i{font-size:10px}
 .img-btn.saving{opacity:.5;cursor:wait}
 
-/* Video group */
+/* Video group — mirrors image group layout exactly */
 .vid-group{align-self:flex-start;width:100%;display:flex;flex-direction:column;gap:8px}
+.vid-row{
+  display:flex;flex-wrap:nowrap;gap:10px;
+  overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+  padding-bottom:6px;width:100%;scroll-snap-type:x mandatory;
+}
+.vid-row::-webkit-scrollbar{height:3px}
+.vid-row::-webkit-scrollbar-thumb{background:var(--s3);border-radius:3px}
+.vid-card{
+  flex-shrink:0;width:162px;border-radius:var(--r16);overflow:hidden;
+  background:rgba(255,255,255,.03);border:2px solid var(--bd);
+  animation:fadeUp .3s cubic-bezier(.16,1,.3,1) both;
+  transition:border-color .22s,box-shadow .22s;
+  scroll-snap-align:start;
+}
+.vid-card:hover{border-color:rgba(248,113,113,.25)}
+.vid-card.was-shared{border-color:rgba(52,211,153,.65)!important;box-shadow:0 0 12px rgba(52,211,153,.18)}
+.vid-card.was-saved{border-color:rgba(96,165,250,.65)!important;box-shadow:0 0 12px rgba(96,165,250,.18)}
+.vid-card-label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.35);padding:6px 10px 4px;text-align:left;}
+.vid-preview{width:100%;aspect-ratio:9/16;background:#000;overflow:hidden;}
+.vid-preview video{width:100%;height:100%;object-fit:cover;display:block;}
+.vid-actions{padding:8px;display:flex;flex-direction:column;gap:5px}
+.vid-btn-share{
+  width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+  background:linear-gradient(135deg,rgba(248,113,113,.18),rgba(251,146,60,.12));
+  border:1px solid rgba(248,113,113,.28);border-radius:var(--r8);
+  padding:8px 10px;font-size:12px;font-weight:700;color:#fca5a5;
+  cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;
+}
+.vid-btn-share:hover{transform:translateY(-1px)}
+.vid-btns-row{display:flex;gap:5px}
+.vid-btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:4px;
+  background:rgba(255,255,255,.04);border:1px solid var(--bd);border-radius:var(--r8);
+  padding:7px 4px;font-size:11px;font-weight:600;color:var(--tx2);
+  cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;
+}
+.vid-btn:hover{background:rgba(255,255,255,.09);color:var(--tx)}
+.vid-btn i{font-size:10px}
 .vid-status{
   display:flex;align-items:center;gap:9px;
   background:rgba(255,255,255,.03);border:1px solid var(--bd);
   border-radius:var(--r8);padding:10px 14px;font-size:13px;color:var(--tx2);
 }
-.vid-card{background:rgba(255,255,255,.02);border:1px solid var(--bd);border-radius:var(--r16);padding:12px;animation:fadeUp .3s cubic-bezier(.16,1,.3,1) both}
-.vid-card video{width:100%;aspect-ratio:9/16;border-radius:10px;background:#000;object-fit:cover}
-.vid-actions{display:flex;gap:7px;margin-top:10px}
-.vid-btn{
-  flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
-  background:linear-gradient(135deg,rgba(92,77,224,.18),rgba(124,109,255,.12));
-  border:1px solid rgba(124,109,255,.24);border-radius:var(--r8);
-  padding:9px 12px;font-size:12px;font-weight:600;color:var(--acc3);
+/* Horizontal scroll video row — same as img-row */
+.vid-row{
+  display:flex;flex-wrap:nowrap;gap:10px;
+  overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+  padding-bottom:6px;width:100%;scroll-snap-type:x mandatory;
+}
+.vid-row::-webkit-scrollbar{height:3px}
+.vid-row::-webkit-scrollbar-thumb{background:var(--s3);border-radius:3px}
+/* Individual video card — same width as img-card */
+.vid-card{
+  flex-shrink:0;width:162px;border-radius:var(--r16);overflow:hidden;
+  background:rgba(255,255,255,.03);border:2px solid var(--bd);
+  animation:fadeUp .3s cubic-bezier(.16,1,.3,1) both;
+  transition:border-color .22s,box-shadow .22s;
+  scroll-snap-align:start;
+}
+.vid-card:hover{border-color:rgba(248,113,113,.25)}
+.vid-card.was-shared{border-color:rgba(52,211,153,.65)!important;box-shadow:0 0 12px rgba(52,211,153,.18)}
+.vid-card.was-saved{border-color:rgba(96,165,250,.65)!important;box-shadow:0 0 12px rgba(96,165,250,.18)}
+.vid-card-label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.35);padding:6px 10px 4px;text-align:left;}
+.vid-preview{width:100%;aspect-ratio:9/16;background:#000;border-radius:10px;overflow:hidden;position:relative;}
+.vid-preview video{width:100%;height:100%;object-fit:cover;display:block;}
+.vid-actions{padding:8px;display:flex;flex-direction:column;gap:5px}
+.vid-btn-share{
+  width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+  background:linear-gradient(135deg,rgba(248,113,113,.18),rgba(251,146,60,.12));
+  border:1px solid rgba(248,113,113,.28);border-radius:var(--r8);
+  padding:8px 10px;font-size:12px;font-weight:700;color:#fca5a5;
   cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;
 }
-.vid-btn:hover{transform:translateY(-1px);background:linear-gradient(135deg,rgba(92,77,224,.25),rgba(124,109,255,.18))}
+.vid-btn-share:hover{transform:translateY(-1px);background:linear-gradient(135deg,rgba(248,113,113,.25),rgba(251,146,60,.18))}
+.vid-btn-share.saving{opacity:.5;cursor:wait;transform:none}
+.vid-btns-row{display:flex;gap:5px}
+.vid-btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:4px;
+  background:rgba(255,255,255,.04);border:1px solid var(--bd);border-radius:var(--r8);
+  padding:7px 6px;font-size:11px;font-weight:600;color:var(--tx2);
+  cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;
+}
+.vid-btn:hover{background:rgba(255,255,255,.09);color:var(--tx);border-color:rgba(255,255,255,.14)}
+.vid-btn:active{transform:scale(.94)}
+.vid-btn i{font-size:10px}
+.vid-btn.saving{opacity:.5;cursor:wait}
 
 .session-sep{
   align-self:center;font-size:10px;font-weight:700;letter-spacing:.1em;
@@ -1198,15 +1268,20 @@ async function doPoll(jobId){
   try {
     const job=await pollStatus(jobId);if(!job)return;
     if(s.tpl==='vidgen'){
-      updateSession(jobId,{status:job.status==='done'?'done':job.status==='error'?'error':'generating',progress:job.progress});
-      if(_activeJobId===jobId)updateVidStatus(jobId,job);
+      const results=job.results||[];
+      const prevSeen=s.seenCount||0;
+      if(_activeJobId===jobId){
+        for(let i=prevSeen;i<results.length;i++) addVidCard(jobId,results[i],i);
+        updateVidGroupHd(jobId,job.done||results.length,job.total||results.length,job.status==='done'?'done':job.status==='error'?'error':'processing');
+        scrollDown();
+      }
+      updateSession(jobId,{seenCount:results.length,done:job.done||results.length,total:job.total||results.length,status:job.status==='done'?'done':job.status==='error'?'error':'generating'});
       if(job.status==='done'||job.status==='error'){
         clearInterval(s.pollInterval);s.pollInterval=null;
-        updateSession(jobId,{status:job.status==='done'?'done':'error',videoUrl:job.videoUrl});
-        updateHist(jobId,{status:job.status,videoUrl:job.videoUrl});
+        updateHist(jobId,{status:job.status,results,done:job.done||results.length,total:job.total||results.length});
         if(_activeJobId===jobId){
-          if(job.status==='done'&&job.videoUrl)showVidCard(jobId,job.videoUrl,job.label||'Video');
-          else if(job.status==='error')addErrMsg(job.error||'Video render failed.');
+          if(job.status==='error') addErrMsg(job.error||'Video render failed.');
+          updateVidGroupHd(jobId,job.done||results.length,job.total||results.length,job.status==='done'?'done':'error');
         }
         renderSessionBar();processQueue();
       }
@@ -1283,9 +1358,11 @@ function onChipClick(jobId){
   addSessionSep(s.ts);
   if(s.tpl==='vidgen'){
     addVidGroup(jobId);
-    if(s.status==='done'&&s.videoUrl)showVidCard(jobId,s.videoUrl,s.label||'Video');
-    else if(s.status==='error')addErrMsg(s.errorMsg||'Failed.');
-    else updateVidStatus(jobId,{status:'processing',progress:s.progress||'Processing…'});
+    const vhEntry=getHist().find(e=>e.jobId===jobId);
+    const vResults=vhEntry?.results||[];
+    vResults.forEach((r,i)=>addVidCard(jobId,r,i));
+    updateVidGroupHd(jobId,s.done||vResults.length,s.total||vResults.length,s.status==='done'?'done':s.status==='error'?'error':'processing');
+    if(s.status==='error')addErrMsg(s.errorMsg||'Failed.');
   } else {
     addImgGroup(jobId);
     const hEntry=getHist().find(e=>e.jobId===jobId);
@@ -1523,30 +1600,118 @@ function addImgCard(jobId,item,idx) {
   if(is[isk])applyCardState(jobId,idx,is[isk]);
 }
 
-/* Video group */
+/* Video group — mirrors image group exactly */
 function addVidGroup(jobId) {
-  const d=document.createElement('div');d.className='vid-group';d.id=`vg-${xe(jobId)}`;
-  d.innerHTML=`<div class="vid-status" id="vs-${xe(jobId)}">
-    <div class="dots"><span></span><span></span><span></span></div>
-    <span>Waiting for GitHub Actions…&nbsp;(~60s)</span>
-  </div>`;
+  const d=document.createElement('div');
+  d.className='vid-group';d.id=`vg-${xe(jobId)}`;
+  d.innerHTML=`
+    <div class="group-hd" id="vhd-${xe(jobId)}">
+      <div class="group-hd-l">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>Waiting for GitHub Actions… (~60s)</span>
+      </div>
+    </div>
+    <div class="vid-row" id="vrow-${xe(jobId)}"></div>`;
   msgs().appendChild(d);
 }
-function updateVidStatus(jobId,job) {
-  const s=$(`vs-${jobId}`);if(!s)return;
-  if(job.status==='processing'){ const sp=s.querySelector('span');if(sp)sp.textContent=job.progress||'Processing video…'; }
-}
-function showVidCard(jobId,url,label) {
-  const g=$(`vg-${jobId}`);if(!g)return;
-  $(`vs-${jobId}`)?.remove();
-  const d=document.createElement('div');d.className='vid-card';
-  d.innerHTML=`
-    <video controls playsinline><source src="${xe(url)}" type="video/mp4"></video>
-    <div class="vid-actions">
-      <button class="vid-btn" onclick="window.open('${xe(url)}','_blank')"><i class="fas fa-external-link-alt"></i> Open</button>
-      <button class="vid-btn" onclick="dlVid('${xe(url)}','${xe(label)}')"><i class="fas fa-download"></i> Download</button>
+function updateVidGroupHd(jobId,done,total,status) {
+  const hd=$('vhd-'+jobId);if(!hd)return;
+  const j=xe(jobId);
+  if(status==='done'){
+    hd.innerHTML=`
+      <div class="group-hd-l">
+        <i class="fas fa-check-circle" style="color:var(--gn);font-size:15px"></i>
+        <span style="color:var(--gn);font-weight:700">${done} video${done!==1?'s':''} ready ✓</span>
+      </div>
+      <button class="dl-all-btn" id="vdla-${j}" onclick="dlAllVid('${j}',${done})">
+        <i class="fas fa-cloud-arrow-down"></i> Download All (${done})
+      </button>`;
+  } else if(status==='error'){
+    const s=getSession(jobId);
+    hd.innerHTML=`<div class="group-hd-l">
+      <i class="fas fa-circle-exclamation" style="color:var(--rd)"></i>
+      <span style="color:var(--rd);font-weight:600">Failed — ${xe(s?.errorMsg||'Render failed.')}</span>
     </div>`;
-  g.appendChild(d);scrollDown();
+  } else if(status==='processing'){
+    if(total>0){
+      const pct=Math.round((done/total)*100);
+      hd.innerHTML=`<div class="group-hd-l">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>Rendering ${done} of ${total} videos… <span style="color:var(--ac);font-weight:700">${pct}%</span></span>
+      </div>`;
+    } else {
+      const elapsed=Math.round((Date.now()-(getSession(jobId)?.ts||Date.now()))/1000);
+      const step = elapsed<15 ? '⚡ Posting to GitHub…'
+                 : elapsed<35 ? '⏳ GitHub Actions starting…'
+                 : elapsed<90 ? '🎬 Rendering videos…'
+                 : '🎬 Still rendering… (large batch)';
+      hd.innerHTML=`<div class="group-hd-l">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>${step} <span style="color:var(--tx3);font-size:11px">${elapsed}s</span></span>
+      </div>`;
+    }
+  } else {
+    hd.innerHTML=`<div class="group-hd-l">
+      <i class="fas fa-layer-group" style="color:var(--tx3)"></i>
+      <span style="color:var(--tx3)">Queued — waiting for a free slot…</span>
+    </div>`;
+  }
+}
+function addVidCard(jobId,item,idx) {
+  if(!item||!item.videoUrl)return;
+  const row=$(`vrow-${jobId}`);if(!row)return;
+  const ej=xe(jobId);
+  const url=item.videoUrl;
+  const card=document.createElement('div');
+  card.className='vid-card';
+  card.id=`vcard-${xe(jobId)}-${idx}`;
+  card.style.animationDelay=(idx%6*60)+'ms';
+  card.innerHTML=`
+    <div class="vid-card-label">Video ${idx+1}</div>
+    <div class="vid-preview">
+      <video playsinline loop muted autoplay>
+        <source src="${xe(url)}" type="video/mp4">
+      </video>
+    </div>
+    <div class="vid-actions">
+      <button class="vid-btn-share" onclick="shareVid('${ej}',${idx},'${xe(url)}')">
+        <i class="fas fa-share-nodes"></i> Share
+      </button>
+      <div class="vid-btns-row">
+        <button class="vid-btn" onclick="dlVidOne('${ej}',${idx},'${xe(url)}')">
+          <i class="fas fa-download"></i> Save
+        </button>
+        <button class="vid-btn" onclick="openVid('${xe(url)}')">
+          <i class="fas fa-external-link-alt"></i> Open
+        </button>
+      </div>
+    </div>`;
+  row.appendChild(card);
+  scrollDown();
+}
+async function shareVid(jobId,idx,url){
+  try{
+    if(navigator.share) await navigator.share({title:'Video '+( idx+1),url});
+    else { window.open(url,'_blank'); }
+    toast('Shared ✓');
+  } catch(e){ if(e.name!=='AbortError') toast('⚠️ '+e.message); }
+}
+function dlVidOne(jobId,idx,url){
+  const a=document.createElement('a');
+  a.href=url;a.download=`video-${jobId}-${idx+1}.mp4`;
+  document.body.appendChild(a);a.click();a.remove();
+}
+function openVid(url){ window.open(url,'_blank'); }
+async function dlAllVid(jobId,total){
+  const btn=$('vdla-'+jobId);
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="fas fa-circle-notch spin"></i> Downloading…';}
+  const h=getHist().find(e=>e.jobId===jobId);
+  const results=(h?.results)||[];
+  for(let i=0;i<results.length;i++){
+    if(results[i]?.videoUrl) dlVidOne(jobId,i,results[i].videoUrl);
+    await new Promise(r=>setTimeout(r,400));
+  }
+  if(btn){btn.disabled=false;btn.innerHTML='<i class="fas fa-cloud-arrow-down"></i> Download All ('+total+')';}
 }
 
 /* ═══════════════════════════════════════════════════════════
