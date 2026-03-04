@@ -86,21 +86,152 @@ jobs:
 
           if (!posts.length) { console.error('No posts returned from Worker'); process.exit(1); }
 
-          // ── Text helpers ──
-          const ZODIAC = /(Aries|Taurus|Gemini|Cancer|Leo|Virgo|Libra|Scorpio|Sagittarius|Capricorn|Aquarius|Pisces)/gi;
-          const boldZ  = t => t ? t.replace(ZODIAC, '**$1**') : t;
+          // ══════════════════════════════════════════════════════════════
+          // 1. MULTILINGUAL BOLD — zodiacs in 12 languages + ALL-CAPS words
+          // ══════════════════════════════════════════════════════════════
+          const ZODIAC_ML = [
+            // English
+            'Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces',
+            // German
+            'Widder','Stier','Zwillinge','Krebs','Löwe','Jungfrau','Waage','Skorpion','Schütze','Steinbock','Wassermann','Fische',
+            // Spanish
+            'Aries','Tauro','Géminis','Cáncer','Leo','Virgo','Libra','Escorpio','Sagitario','Capricornio','Acuario','Piscis',
+            // French
+            'Bélier','Taureau','Gémeaux','Cancer','Lion','Vierge','Balance','Scorpion','Sagittaire','Capricorne','Verseau','Poissons',
+            // Italian
+            'Ariete','Toro','Gemelli','Cancro','Leone','Vergine','Bilancia','Scorpione','Sagittario','Capricorno','Acquario','Pesci',
+            // Portuguese
+            'Áries','Touro','Gêmeos','Câncer','Leão','Virgem','Libra','Escorpião','Sagitário','Capricórnio','Aquário','Peixes',
+            // Russian
+            'Овен','Телец','Близнецы','Рак','Лев','Дева','Весы','Скорпион','Стрелец','Козерог','Водолей','Рыбы',
+            // Hindi
+            'मेष','वृषभ','मिथुन','कर्क','सिंह','कन्या','तुला','वृश्चिक','धनु','मकर','कुंभ','मीन',
+            // Arabic
+            'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء','الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
+            // Japanese
+            '牡羊座','牡牛座','双子座','蟹座','獅子座','乙女座','天秤座','蠍座','射手座','山羊座','水瓶座','魚座',
+            // Chinese
+            '白羊座','金牛座','双子座','巨蟹座','狮子座','处女座','天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座',
+            // Korean
+            '양자리','황소자리','쌍둥이자리','게자리','사자자리','처녀자리','천칭자리','전갈자리','사수자리','염소자리','물병자리','물고기자리',
+          ];
+          // Build regex: match any zodiac in any language (word-boundary where possible)
+          const zodiacRe = new RegExp(
+            '(' + [...new Set(ZODIAC_ML)].map(z => z.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')',
+            'gu'
+          );
+
+          // Bold important words heuristic (language-agnostic):
+          //   • zodiac names (multilingual)
+          //   • words that are ALL-CAPS Latin (3+ chars): NOTE, TIP, WARNING, etc.
+          //   • inline "keyword:" patterns — word followed by colon
+          function addBold(t) {
+            if (!t) return t;
+            // 1. Zodiac names
+            t = t.replace(zodiacRe, '**$1**');
+            // 2. ALL-CAPS Latin words (3+ chars), not already bolded
+            t = t.replace(/(?<!\*)\b([A-Z]{3,})\b(?!\*)/g, '**$1**');
+            // 3. "Keyword:" at start of a segment (any script, followed by colon)
+            t = t.replace(/^(\S+:)\s/gm, '**$1** ');
+            // 4. Clean up double-bold artifacts
+            t = t.replace(/\*\*\*\*/g, '**').replace(/\*\*\s*\*\*/g, ' ');
+            return t;
+          }
+
           const clean  = t => (t||'').replace(/\*\*/g,'').trim();
           const strip  = t => (t||'').replace(/^\s*(?:post\s*)?\d+\s*[.:\)]\s*/i,'').replace(/^\s*\(\d+\)\s*/,'').trim();
           posts = posts.map(p => ({
-            title:   boldZ(strip(p.title||'')),
-            content: (p.content||[]).map(l => l ? boldZ(l) : l)
+            title:   addBold(strip(p.title||'')),
+            content: (p.content||[]).map(l => l ? addBold(l) : l)
           }));
 
-          // ── SVG renderer ──
-          const BF = "'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif,'Apple Color Emoji','Noto Color Emoji'";
-          const xe = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+          // ══════════════════════════════════════════════════════════════
+          // 2. EMOJI — download Twemoji PNGs, embed as base64 in SVG
+          //    SVG <text> renders emoji as white glyph — <image> fixes it
+          // ══════════════════════════════════════════════════════════════
+          const EMOJI_RE = /\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu;
+
+          function emojiToHex(emoji) {
+            return [...emoji]
+              .map(c => c.codePointAt(0))
+              .filter(cp => cp !== 0xFE0F)   // strip variation selector
+              .map(cp => cp.toString(16))
+              .join('-');
+          }
+
+          const emojiCache = {};
+          async function getEmojiDataUri(emoji) {
+            const hex = emojiToHex(emoji);
+            if (emojiCache[hex]) return emojiCache[hex];
+            // Twemoji CDN — no auth needed, very reliable on GitHub Actions
+            const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${hex}.png`;
+            try {
+              const r = await fetch(url);
+              if (!r.ok) throw new Error('404');
+              const buf = await r.arrayBuffer();
+              const b64 = Buffer.from(buf).toString('base64');
+              emojiCache[hex] = `data:image/png;base64,${b64}`;
+              return emojiCache[hex];
+            } catch {
+              // Try without skin-tone / compound suffix (e.g. 1f44d-1f3fd → 1f44d)
+              const base = hex.split('-')[0];
+              if (base !== hex) {
+                const url2 = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${base}.png`;
+                try {
+                  const r2 = await fetch(url2);
+                  if (!r2.ok) throw new Error('404');
+                  const buf2 = await r2.arrayBuffer();
+                  const b64  = Buffer.from(buf2).toString('base64');
+                  emojiCache[hex] = `data:image/png;base64,${b64}`;
+                  return emojiCache[hex];
+                } catch {}
+              }
+              emojiCache[hex] = null; // mark as failed so we don't retry
+              return null;
+            }
+          }
+
+          // Pre-fetch all unique emoji found across all posts
+          const allEmoji = new Set();
+          for (const p of posts) {
+            const all = [p.title||'', ...(p.content||[])].join('\n');
+            for (const m of all.matchAll(EMOJI_RE)) allEmoji.add(m[0]);
+          }
+          if (allEmoji.size > 0) {
+            console.log('Pre-fetching ' + allEmoji.size + ' emoji from Twemoji CDN…');
+            await Promise.all([...allEmoji].map(e => getEmojiDataUri(e)));
+            console.log('Emoji ready: ' + Object.values(emojiCache).filter(Boolean).length + ' fetched');
+          }
+
+          // Split a string into [{type:'text'|'emoji', val}] segments
+          function splitSegments(str) {
+            const segs = [];
+            let last = 0;
+            for (const m of str.matchAll(EMOJI_RE)) {
+              if (m.index > last) segs.push({ type:'text',  val: str.slice(last, m.index) });
+              segs.push({ type:'emoji', val: m[0] });
+              last = m.index + m[0].length;
+            }
+            if (last < str.length) segs.push({ type:'text', val: str.slice(last) });
+            return segs;
+          }
+
+          // ══════════════════════════════════════════════════════════════
+          // 3. SVG RENDERER — pure black bg, inline emoji images
+          // ══════════════════════════════════════════════════════════════
+          const BF  = "'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif";
+          const xe  = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
           const isWide  = ch => { const cp=ch.codePointAt(0); return cp>=0x1F000||(cp>=0x4E00&&cp<=0x9FFF)||(cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||(cp>=0x2600&&cp<=0x27FF); };
           const charLen = s => { let n=0; for(const c of [...(s||'')]) n+=isWide(c)?2:1; return n; };
+
+          // Rough px-width estimator for text at given font-size
+          // (0.52 for normal Latin, 1.0 for wide/CJK)
+          function estWidth(str, fs) {
+            let w = 0;
+            for (const ch of [...str]) w += isWide(ch) ? fs : fs * 0.52;
+            return w;
+          }
+
           function parseBold(t) {
             const segs=[],re=/\*\*(.*?)\*\*/g; let last=0,m;
             while((m=re.exec(t))!==null){ if(m.index>last)segs.push({t:t.slice(last,m.index),b:false}); if(m[1])segs.push({t:m[1],b:true}); last=re.lastIndex; }
@@ -117,13 +248,53 @@ jobs:
             if(clean(raw))lines.push(raw); return lines.length?lines:[''];
           }
           function smartWrap(txt,cpl) { if(!txt)return['']; const p=clean(txt),sp=(p.match(/ /g)||[]).length,wc=[...p].filter(isWide).length; return (wc>p.length*.3||(wc>2&&sp<2))?wrapCJK(txt,cpl):wrapLatin(txt,cpl); }
-          function renderLine(px,y,fs,fw,fill,raw) {
-            const segs=parseBold(raw),hb=segs.some(s=>s.b);
-            if(!hb) return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(clean(raw))}</text>`;
-            const sp=segs.map(s=>`<tspan font-weight="${s.b?900:fw}" fill="${s.b?'#FFFFFF':fill}">${xe(s.t)}</tspan>`).join('');
-            return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${sp}</text>`;
+
+          // Render one display line — handles bold tspans + inline emoji images
+          function renderLine(px, y, fs, fw, fill, raw) {
+            const textStr = clean(raw);
+            const segs    = splitSegments(textStr);
+            const boldSegs = parseBold(raw); // for bold detection
+            const hasBold  = boldSegs.some(s => s.b);
+
+            // If no emoji in line, use original fast path
+            if (!segs.some(s => s.type === 'emoji')) {
+              if (!hasBold) {
+                return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(textStr)}</text>`;
+              }
+              const sp = boldSegs.map(s =>
+                `<tspan font-weight="${s.b?900:fw}" fill="${s.b?'#FFFFFF':fill}">${xe(s.t)}</tspan>`
+              ).join('');
+              return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${sp}</text>`;
+            }
+
+            // Mixed text + emoji: render segment by segment with x tracking
+            const emojiSize = Math.round(fs * 1.05);
+            const emojiY    = y - Math.round(fs * 0.82); // top of image = baseline - ascent
+            const parts     = [];
+            let xCur        = px;
+
+            for (const seg of segs) {
+              if (seg.type === 'emoji') {
+                const uri = emojiCache[emojiToHex(seg.val)];
+                if (uri) {
+                  parts.push(`<image x="${Math.round(xCur)}" y="${emojiY}" width="${emojiSize}" height="${emojiSize}" href="${uri}" preserveAspectRatio="xMidYMid meet"/>`);
+                  xCur += emojiSize + 3;
+                } else {
+                  // fallback: render as text (will be monochrome but better than blank)
+                  parts.push(`<text x="${Math.round(xCur)}" y="${y}" font-family="'Apple Color Emoji','Noto Color Emoji'" font-size="${fs}" xml:space="preserve">${xe(seg.val)}</text>`);
+                  xCur += fs;
+                }
+              } else if (seg.val) {
+                // Bold detection within this text segment
+                const bSegs = parseBold(seg.val.replace(/\*\*/g,'')); // plain text, no bold markers here
+                parts.push(`<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(seg.val)}</text>`);
+                xCur += estWidth(seg.val, fs);
+              }
+            }
+            return parts.join('');
           }
-          function makeSVG(post) {
+
+          async function makeSVG(post) {
             const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOT=H-PY;
             const rawTitle=(post.title||'').trim(),content=post.content||[];
             const vL=charLen(clean(rawTitle))+charLen(content.map(l=>clean(l||'')).join(''));
@@ -146,30 +317,22 @@ jobs:
             if(bLines.length){const ay=y+Math.round(gap*.28);if(ay<BOT)els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(124,109,255,0.7)"/>`);y+=gap;}
             for(const line of bLines){if(!line.gap&&y>BOT+bs)break;if(!line.gap)els.push(renderLine(PX,y,bs,400,'rgba(255,255,255,0.82)',line.raw));y+=line.gap?Math.round(blh*.5):blh;}
             return '<?xml version="1.0" encoding="UTF-8"?>'
-              +`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`
+              +`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`
               +'<defs>'
-              +`<linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">`
-              +'<stop offset="0%" stop-color="#030310"/><stop offset="50%" stop-color="#070516"/><stop offset="100%" stop-color="#000918"/>'
-              +'</linearGradient>'
-              +'<radialGradient id="g1" cx="80%" cy="10%" r="50%"><stop offset="0%" stop-color="#7c6dff" stop-opacity="0.12"/><stop offset="100%" stop-color="#7c6dff" stop-opacity="0"/></radialGradient>'
-              +'<radialGradient id="g2" cx="15%" cy="90%" r="45%"><stop offset="0%" stop-color="#a78bfa" stop-opacity="0.08"/><stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/></radialGradient>'
               +`<clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>`
               +'</defs>'
-              +`<rect width="${W}" height="${H}" fill="url(#bg)"/>`
-              +`<rect width="${W}" height="${H}" fill="url(#g1)"/>`
-              +`<rect width="${W}" height="${H}" fill="url(#g2)"/>`
+              +`<rect width="${W}" height="${H}" fill="#000000"/>`
               +`<g clip-path="url(#clip)">${els.join('')}</g>`
               +'</svg>';
           }
 
           // ── Build results — write incremental status after EACH image ──
-          // The frontend polls every 8 s and shows images as they arrive
           const dir = 'api/status';
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
           const results = [];
           for (let i = 0; i < posts.length; i++) {
-            const svg = makeSVG(posts[i]);
+            const svg = await makeSVG(posts[i]);
             results.push({ title: clean(posts[i].title), content: posts[i].content, svg });
 
             const isLast = i === posts.length - 1;
@@ -185,8 +348,7 @@ jobs:
             }));
             console.log(`Image ${i + 1} / ${posts.length} written`);
           }
-          console.log('All done: ' + results.length + ' image(s)');
-          JSEOF
+          console.log('All done: ' + results.length + ' image(s)');\n          JSEOF
 
       - name: Run generator
         env:
