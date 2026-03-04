@@ -9,365 +9,214 @@ jobs:
     if: startsWith(github.event.comment.body, 'LUMA_IMG:')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
 
-      - name: Setup Node
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Parse comment payload
-        id: payload
-        run: |
-          COMMENT='${{ github.event.comment.body }}'
-          JSON="${COMMENT#LUMA_IMG:}"
-          echo "json=$JSON" >> $GITHUB_OUTPUT
-          JOB_ID=$(echo "$JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');console.log(JSON.parse(d).jobId||'')")
-          TEXT=$(echo "$JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');console.log(JSON.parse(d).text||'')")
-          DEVICE_ID=$(echo "$JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');console.log(JSON.parse(d).deviceId||'')")
-          echo "jobId=$JOB_ID" >> $GITHUB_OUTPUT
-          echo "text=$TEXT" >> $GITHUB_OUTPUT
-          echo "deviceId=$DEVICE_ID" >> $GITHUB_OUTPUT
-
-      - name: Generate SVGs with Groq AI
+      # ── Safe parse: env var avoids shell injection from comment body ──
+      - name: Parse payload
+        id: p
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          JOB_ID: ${{ steps.payload.outputs.jobId }}
-          INPUT_TEXT: ${{ steps.payload.outputs.text }}
-          DEVICE_ID: ${{ steps.payload.outputs.deviceId }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          cat << 'SCRIPT' > run.mjs
+          node << 'EOF'
+          const body = process.env.COMMENT_BODY;
+          const json = body.slice(body.indexOf(':') + 1);
+          let d;
+          try { d = JSON.parse(json); } catch(e) { console.error('Bad JSON:', e.message); process.exit(1); }
+          const fs = require('fs');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `jobId=${d.jobId||''}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `deviceId=${d.deviceId||''}\n`);
+          fs.writeFileSync('/tmp/input_text.txt', d.text || '');
+          console.log('Parsed jobId:', d.jobId, '| text chars:', (d.text||'').length);
+          EOF
+
+      # ── Write "processing" immediately so UI shows progress spinner ──
+      - name: Write processing status
+        run: |
+          JOB_ID="${{ steps.p.outputs.jobId }}"
+          DEVICE="${{ steps.p.outputs.deviceId }}"
+          mkdir -p api/status
+          printf '{"jobId":"%s","deviceId":"%s","status":"processing","template":"imggen","total":0,"done":0,"label":"Processing\u2026","timestamp":%s,"results":[]}' \
+            "$JOB_ID" "$DEVICE" "$(date +%s)000" > "api/status/${JOB_ID}.json"
+          git config user.name  "LUMA Bot"
+          git config user.email "luma-bot@users.noreply.github.com"
+          git add api/status/
+          git diff --staged --quiet || (git commit -m "start: ${JOB_ID}" && git push)
+
+      - name: Write generator script
+        run: |
+          cat > /tmp/gen.mjs << 'JSEOF'
           import fs from 'fs';
 
           const jobId    = process.env.JOB_ID;
-          const text     = process.env.INPUT_TEXT;
+          const text     = fs.readFileSync('/tmp/input_text.txt', 'utf8').trim();
           const deviceId = process.env.DEVICE_ID;
+          const worker   = process.env.WORKER_URL;
 
-          const prompt = `You are a social media content formatter. Analyze the input and split it into individual posts/slides for 9:16 images.
+          if (!jobId || !text) { console.error('Missing jobId or text'); process.exit(1); }
+          if (!worker)         { console.error('Missing WORKER_URL secret'); process.exit(1); }
 
-ANALYSIS — count distinct posts by looking for:
-- Numbered sections (1. 2. 3. / (1) (2) / #1 #2)
-- Blank-line separations between different topics
-- Repeated structural patterns (zodiac signs, tips, steps, days)
-- Heading lines followed by body paragraphs
-
-FOR EACH POST:
-- title = the heading / first meaningful line (strip any numbering like "1.", "(2)", "Post 3:")
-- content = all remaining lines, one string per line, empty lines become ""
-
-BOLD KEY WORDS by wrapping in **double asterisks**:
-- Zodiac signs: Aries, Taurus, Gemini, Cancer, Leo, Virgo, Libra, Scorpio, Sagittarius, Capricorn, Aquarius, Pisces
-- Planets: Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Sun, Moon
-- Power words: love, success, wealth, abundance, growth, clarity, strength, power, energy, money, health, luck, courage, wisdom, focus, peace, joy, beauty, truth, freedom, balance, harmony, fire, water, earth, air, spirit
-- Any word in ALL CAPS in the original text
-- Any word already marked with * or _ in original
-
-PRESERVE every emoji, punctuation, symbol exactly.
-Do NOT paraphrase or omit any content.
-
-Return ONLY valid JSON — no markdown, no code fences, no explanation:
-{"posts":[{"title":"Title here","content":["line 1","line 2","","line after gap"]}]}
-
-INPUT:
-${text}
-
-JSON:`;
-
+          // ── Call Cloudflare Worker AI endpoint ──
           let posts = [];
           try {
-            const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'LUMA-App'
-              },
-              body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
-                messages: [{ role: 'user', content: prompt }],
-                max_tokens: 8192,
-                temperature: 0.1
-              })
+            const res  = await fetch(worker + '/ai', {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body:    JSON.stringify({ text })
             });
             const data = await res.json();
-            let raw = data.choices?.[0]?.message?.content || '';
-            raw = raw.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
-            const si = raw.indexOf('{'), ei = raw.lastIndexOf('}');
-            if (si !== -1) {
-              const parsed = JSON.parse(raw.slice(si, ei + 1));
-              posts = Array.isArray(parsed) ? parsed : (parsed.posts || []);
-            }
+            if (!res.ok) throw new Error(data.error || 'Worker AI error ' + res.status);
+            posts = data.posts || [];
+            console.log('Worker AI returned ' + posts.length + ' post(s)');
           } catch(e) {
-            console.error('AI error:', e.message);
+            console.error('Worker AI error:', e.message);
             process.exit(1);
           }
 
-          if (!posts.length) { console.error('No posts parsed'); process.exit(1); }
-          console.log(`Parsed ${posts.length} posts.`);
+          if (!posts.length) { console.error('No posts returned from Worker'); process.exit(1); }
 
-          // Post-process: ensure bold on power words missed by AI
-          const POWER_RE = /\b(love|success|wealth|abundance|growth|clarity|strength|power|energy|money|health|luck|courage|wisdom|focus|peace|joy|beauty|truth|freedom|balance|harmony|fire|water|earth|air|spirit|Aries|Taurus|Gemini|Cancer|Leo|Virgo|Libra|Scorpio|Sagittarius|Capricorn|Aquarius|Pisces|Mercury|Venus|Mars|Jupiter|Saturn|Uranus|Neptune|Sun|Moon)\b/gi;
-
-          function ensureBold(t) {
-            if (!t) return t;
-            // Bold ALL_CAPS words (3+ chars) not already bolded
-            t = t.replace(/(?<!\*)\b([A-Z]{3,})\b(?!\*)/g, '**$1**');
-            // Bold power words not already bolded
-            t = t.replace(POWER_RE, (m, p1, offset, str) => {
-              const before = str.slice(Math.max(0, offset - 2), offset);
-              if (before.includes('*')) return m;
-              return `**${m}**`;
-            });
-            // Collapse double-nested **
-            t = t.replace(/\*{4}(.*?)\*{4}/g, '**$1**');
-            return t;
-          }
-
-          function stripNum(t) {
-            return (t||'')
-              .replace(/^\s*(?:post\s*)?\d+\s*[.:)]\s*/i, '')
-              .replace(/^\s*\(\d+\)\s*/, '')
-              .replace(/^\s*#\d+\s*/, '')
-              .trim();
-          }
-
-          function clean(t) { return (t||'').replace(/\*\*/g,'').trim(); }
-
+          // ── Text helpers ──
+          const ZODIAC = /(Aries|Taurus|Gemini|Cancer|Leo|Virgo|Libra|Scorpio|Sagittarius|Capricorn|Aquarius|Pisces)/gi;
+          const boldZ  = t => t ? t.replace(ZODIAC, '**$1**') : t;
+          const clean  = t => (t||'').replace(/\*\*/g,'').trim();
+          const strip  = t => (t||'').replace(/^\s*(?:post\s*)?\d+\s*[.:\)]\s*/i,'').replace(/^\s*\(\d+\)\s*/,'').trim();
           posts = posts.map(p => ({
-            title:   ensureBold(stripNum(p.title || '')),
-            content: (p.content || []).map(l => l ? ensureBold(l) : l)
+            title:   boldZ(strip(p.title||'')),
+            content: (p.content||[]).map(l => l ? boldZ(l) : l)
           }));
 
-          // SVG Generation
-          const EMOJI_FONT = `'Apple Color Emoji','Noto Color Emoji','Segoe UI Emoji'`;
-          const BASE_FONT  = `ui-sans-serif,system-ui,-apple-system,sans-serif,${EMOJI_FONT}`;
-
-          function xe(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-          function isWide(ch) { const cp=ch.codePointAt(0); return cp>=0x1F000||(cp>=0x4E00&&cp<=0x9FFF)||(cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||(cp>=0x2600&&cp<=0x27FF); }
-          function charLen(str) { let n=0; for(const c of [...(str||'')]) n+=isWide(c)?2:1; return n; }
-
-          function parseBold(text) {
-            const segs=[], re=/\*\*(.*?)\*\*/g;
-            let last=0, m;
-            while((m=re.exec(text))!==null){
-              if(m.index>last) segs.push({t:text.slice(last,m.index),bold:false});
-              if(m[1]) segs.push({t:m[1],bold:true});
-              last=re.lastIndex;
-            }
-            if(last<text.length) segs.push({t:text.slice(last),bold:false});
-            return segs.filter(s=>s.t);
+          // ── SVG renderer ──
+          const BF = "'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif,'Apple Color Emoji','Noto Color Emoji'";
+          const xe = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+          const isWide  = ch => { const cp=ch.codePointAt(0); return cp>=0x1F000||(cp>=0x4E00&&cp<=0x9FFF)||(cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||(cp>=0x2600&&cp<=0x27FF); };
+          const charLen = s => { let n=0; for(const c of [...(s||'')]) n+=isWide(c)?2:1; return n; };
+          function parseBold(t) {
+            const segs=[],re=/\*\*(.*?)\*\*/g; let last=0,m;
+            while((m=re.exec(t))!==null){ if(m.index>last)segs.push({t:t.slice(last,m.index),b:false}); if(m[1])segs.push({t:m[1],b:true}); last=re.lastIndex; }
+            if(last<t.length)segs.push({t:t.slice(last),b:false}); return segs.filter(s=>s.t);
+          }
+          function wrapLatin(txt,cpl) {
+            const ws=txt.split(' '),lines=[]; let cur='',curL=0;
+            for(const w of ws){ const wl=charLen(clean(w)),sep=cur?1:0; if(curL+sep+wl>cpl&&cur){lines.push(cur);cur=w;curL=wl;}else{cur=cur?cur+' '+w:w;curL+=sep+wl;} }
+            if(cur)lines.push(cur); return lines.length?lines:[''];
+          }
+          function wrapCJK(txt,cpl) {
+            const lines=[]; let raw='',len=0,inB=false; const chars=[...txt]; let i=0;
+            while(i<chars.length){ if(chars[i]==='*'&&chars[i+1]==='*'){raw+='**';inB=!inB;i+=2;continue;} const ch=chars[i],cl=isWide(ch)?2:1; if(len+cl>cpl&&clean(raw).length>0){if(inB)raw+='**';lines.push(raw);raw=inB?'**'+ch:ch;len=cl;}else{raw+=ch;len+=cl;} i++; }
+            if(clean(raw))lines.push(raw); return lines.length?lines:[''];
+          }
+          function smartWrap(txt,cpl) { if(!txt)return['']; const p=clean(txt),sp=(p.match(/ /g)||[]).length,wc=[...p].filter(isWide).length; return (wc>p.length*.3||(wc>2&&sp<2))?wrapCJK(txt,cpl):wrapLatin(txt,cpl); }
+          function renderLine(px,y,fs,fw,fill,raw) {
+            const segs=parseBold(raw),hb=segs.some(s=>s.b);
+            if(!hb) return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(clean(raw))}</text>`;
+            const sp=segs.map(s=>`<tspan font-weight="${s.b?900:fw}" fill="${s.b?'#FFFFFF':fill}">${xe(s.t)}</tspan>`).join('');
+            return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${sp}</text>`;
+          }
+          function makeSVG(post) {
+            const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOT=H-PY;
+            const rawTitle=(post.title||'').trim(),content=post.content||[];
+            const vL=charLen(clean(rawTitle))+charLen(content.map(l=>clean(l||'')).join(''));
+            let ts,bs,tlh,blh,gap;
+            if(vL<80)       {ts=96;bs=62;tlh=134;blh=90; gap=76;}
+            else if(vL<150) {ts=86;bs=55;tlh=120;blh=82; gap=68;}
+            else if(vL<260) {ts=74;bs=49;tlh=104;blh=72; gap=58;}
+            else if(vL<420) {ts=65;bs=44;tlh=92; blh=64; gap=50;}
+            else if(vL<620) {ts=55;bs=40;tlh=80; blh=58; gap=44;}
+            else if(vL<900) {ts=48;bs=35;tlh=70; blh=50; gap=36;}
+            else            {ts=41;bs=31;tlh=60; blh=44; gap=32;}
+            const tCPL=Math.floor(CW/(ts*.50)),bCPL=Math.floor(CW/(bs*.50));
+            const tLines=smartWrap(rawTitle,tCPL);
+            const bLines=[];
+            for(const line of content){ const r=line||''; if(!clean(r)){bLines.push({raw:'',gap:true});}else{for(const w of smartWrap(r,bCPL))bLines.push({raw:w,gap:false});} }
+            const tH=tLines.length*tlh,bH=bLines.reduce((s,l)=>s+(l.gap?blh*.5:blh),0),totH=tH+(bLines.length?gap+bH:0);
+            let y=totH>(H-PY*2)?PY+ts:Math.max(PY+ts,Math.round((H-totH)/2)+ts);
+            const els=[];
+            for(const line of tLines){if(y>BOT+ts)break;els.push(renderLine(PX,y,ts,800,'#FFFFFF',line));y+=tlh;}
+            if(bLines.length){const ay=y+Math.round(gap*.28);if(ay<BOT)els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(124,109,255,0.7)"/>`);y+=gap;}
+            for(const line of bLines){if(!line.gap&&y>BOT+bs)break;if(!line.gap)els.push(renderLine(PX,y,bs,400,'rgba(255,255,255,0.82)',line.raw));y+=line.gap?Math.round(blh*.5):blh;}
+            return '<?xml version="1.0" encoding="UTF-8"?>'
+              +`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`
+              +'<defs>'
+              +`<linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">`
+              +'<stop offset="0%" stop-color="#030310"/><stop offset="50%" stop-color="#070516"/><stop offset="100%" stop-color="#000918"/>'
+              +'</linearGradient>'
+              +'<radialGradient id="g1" cx="80%" cy="10%" r="50%"><stop offset="0%" stop-color="#7c6dff" stop-opacity="0.12"/><stop offset="100%" stop-color="#7c6dff" stop-opacity="0"/></radialGradient>'
+              +'<radialGradient id="g2" cx="15%" cy="90%" r="45%"><stop offset="0%" stop-color="#a78bfa" stop-opacity="0.08"/><stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/></radialGradient>'
+              +`<clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>`
+              +'</defs>'
+              +`<rect width="${W}" height="${H}" fill="url(#bg)"/>`
+              +`<rect width="${W}" height="${H}" fill="url(#g1)"/>`
+              +`<rect width="${W}" height="${H}" fill="url(#g2)"/>`
+              +`<g clip-path="url(#clip)">${els.join('')}</g>`
+              +'</svg>';
           }
 
-          function wrapLatin(text, cpl) {
-            const words=text.split(' '), lines=[];
-            let cur='', curLen=0;
-            for(const w of words){
-              const wl=charLen(clean(w)), sep=cur?1:0;
-              if(curLen+sep+wl>cpl && cur){ lines.push(cur); cur=w; curLen=wl; }
-              else { cur=cur?`${cur} ${w}`:w; curLen+=sep+wl; }
-            }
-            if(cur) lines.push(cur);
-            return lines.length?lines:[''];
+          // ── Build results — write incremental status after EACH image ──
+          // The frontend polls every 8 s and shows images as they arrive
+          const dir = 'api/status';
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+          const results = [];
+          for (let i = 0; i < posts.length; i++) {
+            const svg = makeSVG(posts[i]);
+            results.push({ title: clean(posts[i].title), content: posts[i].content, svg });
+
+            const isLast = i === posts.length - 1;
+            fs.writeFileSync(`${dir}/${jobId}.json`, JSON.stringify({
+              jobId, deviceId,
+              status:    isLast ? 'done' : 'processing',
+              template:  'imggen',
+              total:     posts.length,
+              done:      i + 1,
+              label:     clean(posts[0]?.title || 'Session').slice(0, 80),
+              timestamp: Date.now(),
+              results:   results.map(r => ({ title: r.title, svg: r.svg, content: r.content }))
+            }));
+            console.log(`Image ${i + 1} / ${posts.length} written`);
           }
+          console.log('All done: ' + results.length + ' image(s)');
+          JSEOF
 
-          function wrapCJK(text, cpl) {
-            const lines=[]; let curRaw='', curLen=0, inBold=false;
-            const chars=[...text]; let i=0;
-            while(i<chars.length){
-              if(chars[i]==='*'&&chars[i+1]==='*'){ curRaw+='**'; inBold=!inBold; i+=2; continue; }
-              const ch=chars[i], cl=isWide(ch)?2:1;
-              if(curLen+cl>cpl && clean(curRaw).length>0){
-                if(inBold) curRaw+='**';
-                lines.push(curRaw); curRaw=inBold?'**'+ch:ch; curLen=cl;
-              } else { curRaw+=ch; curLen+=cl; }
-              i++;
-            }
-            if(clean(curRaw)) lines.push(curRaw);
-            return lines.length?lines:[''];
-          }
+      - name: Run generator
+        env:
+          JOB_ID:     ${{ steps.p.outputs.jobId }}
+          DEVICE_ID:  ${{ steps.p.outputs.deviceId }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+        run: node /tmp/gen.mjs
 
-          function smartWrap(text, cpl) {
-            if(!text) return [''];
-            const p=clean(text), sp=(p.match(/ /g)||[]).length, wc=[...p].filter(isWide).length;
-            return (wc>p.length*0.3||(wc>2&&sp<2)) ? wrapCJK(text,cpl) : wrapLatin(text,cpl);
-          }
-
-          function renderTitleLine(px, y, fs, rawText) {
-            const segs = parseBold(rawText);
-            const hasBold = segs.some(s => s.bold);
-            if (!hasBold) {
-              return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="800" fill="#FFFFFF" xml:space="preserve">${xe(clean(rawText))}</text>`;
-            }
-            const spans = segs.map(s =>
-              `<tspan font-weight="${s.bold?'900':'800'}" fill="#FFFFFF">${xe(s.t)}</tspan>`
-            ).join('');
-            return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="800" fill="#FFFFFF" xml:space="preserve">${spans}</text>`;
-          }
-
-          function renderBodyLine(px, y, fs, rawText) {
-            const segs = parseBold(rawText);
-            const hasBold = segs.some(s => s.bold);
-            if (!hasBold) {
-              return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="400" fill="rgba(255,255,255,0.85)" xml:space="preserve">${xe(clean(rawText))}</text>`;
-            }
-            const spans = segs.map(s =>
-              `<tspan font-weight="${s.bold?'700':'400'}" fill="${s.bold?'#FFFFFF':'rgba(255,255,255,0.85)'}">${xe(s.t)}</tspan>`
-            ).join('');
-            return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="400" fill="rgba(255,255,255,0.85)" xml:space="preserve">${spans}</text>`;
-          }
-
-          function generateSVG(post, postIndex, totalPosts) {
-            const W=1080, H=1920, PX=110, PY=140, CW=W-PX*2, BOTTOM=H-PY;
-            const rawTitle = (post.title||'').trim();
-            const content  = post.content || [];
-
-            const visLen = charLen(clean(rawTitle)) + content.map(l=>charLen(clean(l||''))).reduce((a,b)=>a+b,0);
-
-            let ts, bs, tlh, blh, gap;
-            if      (visLen < 60)  { ts=100; bs=64; tlh=138; blh=92;  gap=80; }
-            else if (visLen < 100) { ts=90;  bs=58; tlh=126; blh=84;  gap=72; }
-            else if (visLen < 160) { ts=80;  bs=52; tlh=112; blh=76;  gap=64; }
-            else if (visLen < 260) { ts=70;  bs=46; tlh=100; blh=68;  gap=56; }
-            else if (visLen < 380) { ts=62;  bs=42; tlh=88;  blh=62;  gap=50; }
-            else if (visLen < 540) { ts=54;  bs=38; tlh=76;  blh=56;  gap=44; }
-            else if (visLen < 760) { ts=46;  bs=34; tlh=66;  blh=50;  gap=38; }
-            else                   { ts=40;  bs=30; tlh=58;  blh=44;  gap=32; }
-
-            const tCPL = Math.floor(CW / (ts * 0.52));
-            const bCPL = Math.floor(CW / (bs * 0.52));
-            const titleLines = smartWrap(rawTitle, tCPL);
-
-            const bodyLines = [];
-            for (const line of content) {
-              const r = line || '';
-              if (!clean(r)) {
-                bodyLines.push({ raw:'', gap:true });
-              } else {
-                for (const w of smartWrap(r, bCPL)) bodyLines.push({ raw:w, gap:false });
-              }
-            }
-
-            const titleH = titleLines.length * tlh;
-            const bodyH  = bodyLines.reduce((s,l) => s + (l.gap ? blh*0.45 : blh), 0);
-            const totalH = titleH + (bodyLines.length ? gap + bodyH : 0);
-
-            let startY = totalH > (H - PY*2)
-              ? PY + ts
-              : Math.max(PY + ts, Math.round((H - totalH) / 2) + ts);
-
-            // Cycle subtle palette per post
-            const pals = [
-              ['#06020f','#080412','#00091a'],
-              ['#060210','#04080f','#0a0218'],
-              ['#080310','#040212','#000a1a'],
-              ['#060108','#080210','#020815'],
-              ['#070210','#050315','#000c1a'],
-            ];
-            const pal = pals[postIndex % pals.length];
-
-            const contentEls = [];
-            let y = startY;
-
-            for (const line of titleLines) {
-              if (y > BOTTOM + ts) break;
-              contentEls.push(renderTitleLine(PX, y, ts, line));
-              y += tlh;
-            }
-
-            if (bodyLines.length) {
-              const divY = y + Math.round(gap * 0.22);
-              if (divY < BOTTOM) {
-                contentEls.push(`<rect x="${PX}" y="${divY}" width="52" height="5" rx="2.5" fill="rgba(139,92,246,0.8)"/>`);
-              }
-              y += gap;
-            }
-
-            for (const line of bodyLines) {
-              if (!line.gap && y > BOTTOM + bs) break;
-              if (!line.gap) contentEls.push(renderBodyLine(PX, y, bs, line.raw));
-              y += line.gap ? Math.round(blh * 0.45) : blh;
-            }
-
-            // Post number badge top-right
-            if (totalPosts > 1) {
-              const bw = 88, bh = 34, bx = W - PX - bw, by = PY - 16;
-              contentEls.push(`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="17" fill="rgba(99,102,241,0.18)" stroke="rgba(139,92,246,0.35)" stroke-width="1.5"/>`);
-              contentEls.push(`<text x="${bx+bw/2}" y="${by+23}" font-family="${BASE_FONT}" font-size="20" font-weight="700" fill="rgba(167,139,250,0.9)" text-anchor="middle" xml:space="preserve">${postIndex+1} / ${totalPosts}</text>`);
-            }
-
-            return `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">
-      <stop offset="0%"   stop-color="${pal[0]}"/>
-      <stop offset="55%"  stop-color="${pal[1]}"/>
-      <stop offset="100%" stop-color="${pal[2]}"/>
-    </linearGradient>
-    <radialGradient id="orb1" cx="${W*0.82}" cy="${H*0.11}" r="340" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="rgba(99,102,241,0.14)"/>
-      <stop offset="100%" stop-color="rgba(0,0,0,0)"/>
-    </radialGradient>
-    <radialGradient id="orb2" cx="${W*0.18}" cy="${H*0.89}" r="280" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="rgba(139,92,246,0.11)"/>
-      <stop offset="100%" stop-color="rgba(0,0,0,0)"/>
-    </radialGradient>
-    <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>
-  </defs>
-  <rect width="${W}" height="${H}" fill="url(#bg)"/>
-  <rect width="${W}" height="${H}" fill="url(#orb1)"/>
-  <rect width="${W}" height="${H}" fill="url(#orb2)"/>
-  <g clip-path="url(#clip)">
-    ${contentEls.join('\n    ')}
-  </g>
-</svg>`;
-          }
-
-          const results = posts.map((p, i) => ({
-            title:   clean(p.title),
-            content: p.content,
-            svg:     generateSVG(p, i, posts.length),
-            index:   i
-          }));
-
-          const statusDir = 'api/status';
-          if (!fs.existsSync(statusDir)) fs.mkdirSync(statusDir, { recursive: true });
-
-          fs.writeFileSync(`${statusDir}/${jobId}.json`, JSON.stringify({
-            jobId,
-            deviceId,
-            status:    'done',
-            template:  'imggen',
-            total:     results.length,
-            done:      results.length,
-            label:     clean(posts[0]?.title || 'Session').slice(0, 80),
-            timestamp: Date.now(),
-            results:   results.map(r => ({ title: r.title, svg: r.svg, content: r.content }))
-          }));
-
-          console.log(`✓ ${results.length} posts written to api/status/${jobId}.json`);
-          SCRIPT
-          node run.mjs
-
-      - name: Commit status file
+      - name: Commit status
         run: |
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
           git add api/status/
-          git diff --staged --quiet || git commit -m "job: ${{ steps.payload.outputs.jobId }}"
-          git push
+          git diff --staged --quiet || (git commit -m "job: ${{ steps.p.outputs.jobId }}" && git push)
 
-      - name: Mark failed on error
+      - name: Write error on failure
         if: failure()
+        env:
+          JOB_ID: ${{ steps.p.outputs.jobId }}
         run: |
           mkdir -p api/status
-          echo "{\"status\":\"error\",\"jobId\":\"${{ steps.payload.outputs.jobId }}\",\"error\":\"Image generation failed.\",\"results\":[],\"done\":0,\"total\":0}" > api/status/${{ steps.payload.outputs.jobId }}.json
+          node -e "
+            const fs=require('fs'),j=process.env.JOB_ID;
+            fs.writeFileSync('api/status/'+j+'.json', JSON.stringify({
+              status:'error', jobId:j,
+              error:'Image generation failed. Check Actions logs.',
+              results:[], done:0, total:0, timestamp:Date.now()
+            }));
+          "
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
           git add api/status/
-          git diff --staged --quiet || git commit -m "job-error: ${{ steps.payload.outputs.jobId }}"
-          git push
+          git diff --staged --quiet || (git commit -m "err: ${JOB_ID}" && git push)
