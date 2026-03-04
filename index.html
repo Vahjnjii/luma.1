@@ -516,38 +516,82 @@ body::before{
 .btn-divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--tx3);font-size:12px}
 .btn-divider::before,.btn-divider::after{content:'';flex:1;height:1px;background:var(--bd)}
 
-/* Session Stack Bar */
-@keyframes chipIn{from{opacity:0;transform:scale(.85) translateY(-4px)}to{opacity:1;transform:scale(1)}}
+/* ── Session Stack: numbered dots, left side, bottom-to-top ── */
+@keyframes dotIn{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
+
 #session-bar{
-  position:fixed;top:0;left:0;right:0;z-index:200;
+  position:absolute;
+  left:10px;
+  bottom:80px;        /* above the input bar */
+  top:56px;           /* below ch-nav header */
+  width:28px;
   display:none;
-  background:rgba(3,3,8,.96);backdrop-filter:blur(16px);
-  border-bottom:1px solid var(--bd);
-  padding:7px 10px;
-  flex-direction:row;align-items:center;gap:6px;
-  overflow-x:auto;overflow-y:hidden;
-  -webkit-overflow-scrolling:touch;
+  flex-direction:column-reverse; /* newest at bottom, older stack up */
+  align-items:center;
+  justify-content:flex-start;
+  gap:10px;
+  padding:8px 0;
+  pointer-events:auto;
+  z-index:10;         /* below ch-nav (which has higher z) */
 }
-#session-bar::-webkit-scrollbar{height:0}
 #session-bar.visible{display:flex}
+
+/* Numbered dot */
 .sess-chip{
-  flex-shrink:0;
-  display:flex;align-items:center;gap:6px;
-  background:rgba(255,255,255,.04);border:1px solid var(--bd);
-  border-radius:var(--r8);padding:5px 9px;cursor:pointer;
-  transition:all .18s;min-width:120px;max-width:170px;
-  animation:chipIn .25s cubic-bezier(.16,1,.3,1) both;
+  width:24px;height:24px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:800;color:#fff;
+  cursor:pointer;flex-shrink:0;
+  transition:transform .18s,box-shadow .18s;
+  animation:dotIn .3s cubic-bezier(.16,1,.3,1) both;
+  position:relative;
+  font-family:'DM Sans',sans-serif;
+  border:2px solid rgba(255,255,255,.15);
 }
-.sess-chip:hover{background:rgba(255,255,255,.07);border-color:var(--bdh)}
-.sess-chip.active-chip{border-color:rgba(124,109,255,.5);background:rgba(124,109,255,.09)}
-.sess-chip-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.sess-chip-dot.gen{background:var(--yw);animation:pulse-ring 1.5s ease infinite}
-.sess-chip-dot.done{background:var(--gn)}
-.sess-chip-dot.err{background:var(--rd)}
-.sess-chip-dot.queued{background:var(--tx3)}
-.sess-chip-label{font-size:11px;font-weight:600;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-.sess-chip-count{font-size:10px;font-weight:700;color:var(--tx3);flex-shrink:0;background:rgba(255,255,255,.05);border-radius:4px;padding:1px 5px}
-.queue-pill{flex-shrink:0;display:flex;align-items:center;gap:5px;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.18);border-radius:var(--r8);padding:5px 9px;font-size:11px;font-weight:700;color:var(--yw);white-space:nowrap}
+.sess-chip:hover{transform:scale(1.25)}
+.sess-chip.active-chip{
+  transform:scale(1.2);
+  border-color:rgba(255,255,255,.5);
+}
+
+/* Colors by status */
+.sess-chip.s-gen{
+  background:#f59e0b;
+  box-shadow:0 0 8px rgba(245,158,11,.6);
+  animation:dotIn .3s cubic-bezier(.16,1,.3,1) both, dotPulse 1.4s ease infinite;
+}
+.sess-chip.s-done{
+  background:#10b981;
+  box-shadow:0 0 6px rgba(16,185,129,.4);
+}
+.sess-chip.s-err{
+  background:#ef4444;
+  box-shadow:0 0 6px rgba(239,68,68,.4);
+}
+.sess-chip.s-queued{
+  background:#6b7280;
+  box-shadow:none;
+}
+@keyframes dotPulse{
+  0%,100%{box-shadow:0 0 6px rgba(245,158,11,.5)}
+  50%{box-shadow:0 0 14px rgba(245,158,11,.9)}
+}
+
+/* Tooltip on hover — appears to the right */
+.sess-chip::after{
+  content:attr(data-tip);
+  position:absolute;
+  left:32px;top:50%;transform:translateY(-50%);
+  background:#0c0a1a;border:1px solid rgba(255,255,255,.12);
+  color:rgba(255,255,255,.9);font-size:11px;font-weight:600;
+  padding:4px 10px;border-radius:8px;
+  white-space:nowrap;pointer-events:none;
+  opacity:0;transition:opacity .15s;
+  font-family:'DM Sans',sans-serif;
+  max-width:180px;overflow:hidden;text-overflow:ellipsis;
+  z-index:999;
+}
+.sess-chip:hover::after{opacity:1}
 
 /* bar open offset */
 #screen-chat.bar-open .ch-msgs{padding-top:52px}
@@ -663,8 +707,7 @@ body::before{
 </div>
 
 
-<!-- SESSION STACK BAR -->
-<div id="session-bar"></div>
+<!-- SESSION STACK BAR moved inside screen-chat -->
 
 <!-- ╔══════════════════════════════════════╗ -->
 <!-- ║            CHAT SCREEN              ║ -->
@@ -679,6 +722,7 @@ body::before{
     <button class="ch-hist-btn" onclick="openHistory()"><i class="fas fa-clock-rotate-left"></i> History</button>
   </div>
 
+  <div id="session-bar"></div>
   <div id="ch-msgs" class="ch-msgs">
     <div class="ch-empty" id="ch-empty">
       <div class="ch-empty-icon">✨</div>
@@ -1014,24 +1058,21 @@ function updateHist(jid,upd){ const h=getHist(); const e=h.find(x=>x.jobId===jid
    ═══════════════════════════════════════════════════════════ */
 function renderSessionBar(){
   const bar=$('session-bar');if(!bar)return;
-  const shown=_sessions.slice(0,6);
-  const extraQueued=_sessions.length>6?_sessions.slice(6).filter(s=>s.status==='queued').length:0;
-  if(!_sessions.length){ bar.classList.remove('visible'); $('screen-chat')?.classList.remove('bar-open'); return; }
+  if(!_sessions.length){
+    bar.classList.remove('visible');
+    return;
+  }
   bar.classList.add('visible');
-  $('screen-chat')?.classList.add('bar-open');
-  bar.innerHTML=shown.map(s=>{
-    const dc=s.status==='generating'?'gen':s.status==='done'?'done':s.status==='error'?'err':'queued';
-    const active=s.jobId===_activeJobId?'active-chip':'';
-    const lbl=xe((s.label||s.prompt||'Session').slice(0,26));
-    const cnt=s.total?(s.done||0)+'/'+s.total:(s.done?''+s.done:'');
-    return `<div class="sess-chip ${active}" onclick="onChipClick('${xe(s.jobId)}')" title="${xe(s.prompt||s.label||'')}">
-      <div class="sess-chip-dot ${dc}"></div>
-      <div class="sess-chip-label">${lbl}</div>
-      ${cnt?'<div class="sess-chip-count">'+xe(cnt)+'</div>':''}
-    </div>`;
+  // Show max 5, newest first in array → column-reverse CSS stacks newest at bottom
+  const shown=_sessions.slice(0,5);
+  bar.innerHTML=shown.map((s,i)=>{
+    const num = i+1; // 1=newest, 5=oldest
+    const sc = s.status==='generating'?'s-gen':s.status==='done'?'s-done':s.status==='error'?'s-err':'s-queued';
+    const active = s.jobId===_activeJobId ? 'active-chip' : '';
+    const statusLabel = s.status==='generating'?'Generating…':s.status==='done'?'Done ✓':s.status==='error'?'Failed ✗':'Queued';
+    const tip = xe((s.prompt||s.label||'Session').slice(0,28)) + ' · ' + statusLabel;
+    return `<div class="sess-chip ${sc} ${active}" onclick="onChipClick('${xe(s.jobId)}')" data-tip="${tip}">${num}</div>`;
   }).join('');
-  const totalQ=extraQueued+_sessions.filter(s=>s.status==='queued'&&_sessions.indexOf(s)<6).length;
-  if(totalQ>0) bar.innerHTML+=`<div class="queue-pill"><i class="fas fa-layer-group" style="font-size:10px"></i> ${totalQ} queued</div>`;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1169,10 +1210,16 @@ async function sendMsg() {
   const text = ta.value.trim();
   if (!text) return;
   ta.value=''; resize(ta);
-  hideEmpty();
-  addUserMsg(text);
+
+  // Every send = brand new session, fresh chat
   const jobId=`j-${_user.id}-${Date.now()}`;
   _activeJobId=jobId;
+
+  // Clear chat and show the new session fresh
+  clearChat();
+  hideEmpty();
+  addUserMsg(text);
+
   const sess={
     jobId, prompt:text, label:text.slice(0,80),
     tpl:_tpl, ts:Date.now(), status:'queued',
@@ -1181,17 +1228,19 @@ async function sendMsg() {
   };
   addSession(sess);
   addHist({jobId,prompt:text,label:text.slice(0,80),tpl:_tpl,ts:Date.now(),status:'processing'});
+
   if(_tpl==='vidgen') addVidGroup(jobId);
   else addImgGroup(jobId);
   scrollDown();
   renderSessionBar();
+
   if(countActive()<MAX_ACTIVE){
     updateSession(jobId,{status:'generating'});
     renderSessionBar();
     await _kickGeneration(jobId);
   } else {
-    const hd=$(`ghd-${jobId}`);
-    if(hd) hd.innerHTML=`<div class="group-hd-l"><span style="color:var(--yw)">⏳</span><span>Queued — waiting for a free slot…</span></div>`;
+    const hd=$('ghd-'+jobId);
+    if(hd) hd.innerHTML='<div class="group-hd-l"><span style="color:var(--yw)">⏳</span><span>Queued — waiting for a free slot…</span></div>';
   }
 }
 
