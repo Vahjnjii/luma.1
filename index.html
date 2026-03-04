@@ -1025,16 +1025,26 @@ async function ghComment(type, payload) {
 }
 
 async function pollStatus(jobId) {
-  // raw.githubusercontent.com CDN caches files for ~5 min and ignores ?t= params.
-  // The GitHub Contents API bypasses the CDN and always returns fresh data.
+  // Route through the Cloudflare Worker's /status endpoint so requests are
+  // authenticated with the server-side GH_TOKEN — avoids the 60 req/hr
+  // unauthenticated GitHub API rate limit that caused silent poll failures.
+  // Falls back to the direct GitHub Contents API if the worker lacks /status.
   try {
+    // Primary: worker-proxied authenticated request
+    const workerUrl = CFG.worker + '/status?owner=' + encodeURIComponent(CFG.owner) +
+      '&repo=' + encodeURIComponent(CFG.repo) +
+      '&jobId=' + encodeURIComponent(jobId) +
+      '&t=' + Date.now();
+    const r = await fetch(workerUrl, { cache: 'no-store' });
+    if (r.ok) return r.json();
+    // Fallback: direct GitHub Contents API (unauthenticated, 60 req/hr limit)
     const url = `https://api.github.com/repos/${CFG.owner}/${CFG.repo}/contents/api/status/${encodeURIComponent(jobId)}.json?t=${Date.now()}`;
-    const r   = await fetch(url, {
+    const r2  = await fetch(url, {
       headers: { 'Accept': 'application/vnd.github.v3.raw', 'X-GitHub-Api-Version': '2022-11-28' },
       cache:   'no-store'
     });
-    if (!r.ok) return null;
-    return r.json();
+    if (!r2.ok) return null;
+    return r2.json();
   } catch { return null; }
 }
 
