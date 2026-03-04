@@ -127,39 +127,134 @@ jobs:
             content: (p.content || []).map(l => decodeEntities(l || '')),
           }));
 
-          const ZODIAC_WORDS = [
-            'Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces',
-            '白羊座','金牛座','双子座','巨蟹座','狮子座','处女座','天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座',
-            '牡羊座','雙子座','獅子座','處女座','天蠍座','雙魚座',
-            '牡牛座','蟹座','乙女座','蠍座','山羊座','魚座',
-            'मेष','वृषभ','मिथुन','कर्क','कर्कट','सिंह','कन्या','तुला','वृश्चिक','धनु','मकर','कुंभ','मीन',
-            'மேஷம்','ரிஷபம்','மிதுனம்','கடகம்','சிம்மம்','கன்னி','துலாம்','விருச்சிகம்','தனுசு','மகரம்','கும்பம்','மீனம்',
-            'മേഷം','ഇടവം','മിഥുനം','കർക്കടകം','ചിങ്ങം','കന്നി','തുലാം','വൃശ്ചികം','ധനു','മകരം','കുംഭം','മീനം',
-            'మేషం','వృషభం','మిథునం','కర్కాటకం','సింహం','కన్య','తుల','వృశ్చికం','ధనుస్సు','మకరం','కుంభం','మీనం',
-            'ಮೇಷ','ವೃಷಭ','ಮಿಥುನ','ಕರ್ಕಾಟಕ','ಸಿಂಹ','ಕನ್ಯಾ','ತುಲಾ','ವೃಶ್ಚಿಕ','ಧನು','ಮಕರ','ಕುಂಭ','ಮೀನ',
-            'মেষ','বৃষভ','মিথুন','কর্কট','সিংহ','কন্যা','তুলা','বৃশ্চিক','ধনু','মকর','কুম্ভ','মীন',
-            'Widder','Stier','Zwillinge','Krebs','Löwe','Jungfrau','Waage','Skorpion','Schütze','Steinbock','Wassermann','Fische',
-            'Tauro','Géminis','Cáncer','Sagitario','Capricornio','Acuario','Piscis',
-            'Bélier','Taureau','Gémeaux','Vierge','Balance','Scorpion','Sagittaire','Capricorne','Verseau','Poissons',
-            'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء','الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
-          ];
+          // ── ZODIAC SIGNS — all major languages ──
+          // Words are matched only as WHOLE standalone tokens (surrounded by
+          // word-boundary or whitespace/punctuation) to avoid false positives
+          // e.g. "Cancer research" → only bold if it IS the zodiac context
+          // Detection strategy: match only when the word IS the entire line-segment
+          // or appears at line start / after a separator like : • –
+          const ZODIAC_MAP = {
+            // English
+            Aries:1,Taurus:1,Gemini:1,Cancer:1,Leo:1,Virgo:1,Libra:1,
+            Scorpio:1,Sagittarius:1,Capricorn:1,Aquarius:1,Pisces:1,
+            // German
+            Widder:1,Stier:1,Zwillinge:1,Krebs:1,Löwe:1,Jungfrau:1,
+            Waage:1,Skorpion:1,Schütze:1,Steinbock:1,Wassermann:1,Fische:1,
+            // French
+            Bélier:1,Taureau:1,Gémeaux:1,Vierge:1,Balance:1,Scorpion:1,
+            Sagittaire:1,Capricorne:1,Verseau:1,Poissons:1,
+            // Spanish
+            Aries:1,Tauro:1,Géminis:1,Cáncer:1,Léo:1,Virgo:1,Libra:1,
+            Escorpio:1,Escorpión:1,Sagitario:1,Capricornio:1,Acuario:1,Piscis:1,
+            // Italian
+            Ariete:1,Toro:1,Gemelli:1,Cancro:1,Leone:1,Vergine:1,Bilancia:1,
+            Scorpione:1,Sagittario:1,Capricorno:1,Acquario:1,Pesci:1,
+            // Portuguese
+            Carneiro:1,Touro:1,Gêmeos:1,Gémeos:1,Caranguejo:1,Leão:1,
+            Virgem:1,Balança:1,Escorpião:1,Sagitário:1,Capricórnio:1,
+            Aquário:1,Peixes:1,
+            // Dutch
+            Ram:1,Stier:1,Tweelingen:1,Kreeft:1,Leeuw:1,Maagd:1,Weegschaal:1,
+            Schorpioen:1,Boogschutter:1,Steenbok:1,Waterman:1,Vissen:1,
+            // Polish
+            Baran:1,Byk:1,Bliźnięta:1,Rak:1,Lew:1,Panna:1,Waga:1,
+            Skorpion:1,Strzelec:1,Koziorożec:1,Wodnik:1,Ryby:1,
+            // Swedish / Norwegian / Danish
+            Väduren:1,Oxen:1,Tvillingarna:1,Kräftan:1,Lejonet:1,Jungfrun:1,
+            Vågen:1,Skorpionen:1,Skytten:1,Stenbocken:1,Vattumannen:1,Fiskarna:1,
+            Væren:1,Tyren:1,Tvillingene:1,Krebsen:1,Løven:1,Jomfruen:1,
+            Vægten:1,Skorpionen:1,Skytten:1,Stenbukken:1,Vandmanden:1,Fiskene:1,
+            // Russian
+            Овен:1,Телец:1,Близнецы:1,Рак:1,Лев:1,Дева:1,Весы:1,
+            Скорпион:1,Стрелец:1,Козерог:1,Водолей:1,Рыбы:1,
+            // Turkish
+            Koç:1,Boğa:1,İkizler:1,Yengeç:1,Aslan:1,Başak:1,Terazi:1,
+            Akrep:1,Yay:1,Oğlak:1,Kova:1,Balık:1,
+            // Indonesian / Malay
+            Domba:1,Sapi:1,Kembar:1,Ketam:1,Singa:1,Perawan:1,Timbangan:1,
+            Kalajengking:1,Pemanah:1,Kambing:1,Kendi:1,Ikan:1,
+            // Hindi / Marathi
+            'मेष':1,'वृषभ':1,'मिथुन':1,'कर्क':1,'कर्कट':1,'सिंह':1,'कन्या':1,
+            'तुला':1,'वृश्चिक':1,'धनु':1,'मकर':1,'कुंभ':1,'मीन':1,
+            // Tamil
+            'மேஷம்':1,'ரிஷபம்':1,'மிதுனம்':1,'கடகம்':1,'சிம்மம்':1,'கன்னி':1,
+            'துலாம்':1,'விருச்சிகம்':1,'தனுசு':1,'மகரம்':1,'கும்பம்':1,'மீனம்':1,
+            // Malayalam
+            'മേഷം':1,'ഇടവം':1,'മിഥുനം':1,'കർക്കടകം':1,'ചിങ്ങം':1,'കന്നി':1,
+            'തുലാം':1,'വൃശ്ചികം':1,'ധനു':1,'മകരം':1,'കുംഭം':1,'മീനം':1,
+            // Telugu
+            'మేషం':1,'వృషభం':1,'మిథునం':1,'కర్కాటకం':1,'సింహం':1,'కన్య':1,
+            'తుల':1,'వృశ్చికం':1,'ధనుస్సు':1,'మకరం':1,'కుంభం':1,'మీనం':1,
+            // Kannada
+            'ಮೇಷ':1,'ವೃಷಭ':1,'ಮಿಥುನ':1,'ಕರ್ಕಾಟಕ':1,'ಸಿಂಹ':1,'ಕನ್ಯಾ':1,
+            'ತುಲಾ':1,'ವೃಶ್ಚಿಕ':1,'ಧನು':1,'ಮಕರ':1,'ಕುಂಭ':1,'ಮೀನ':1,
+            // Bengali
+            'মেষ':1,'বৃষভ':1,'মিথুন':1,'কর্কট':1,'সিংহ':1,'কন্যা':1,
+            'তুলা':1,'বৃশ্চিক':1,'ধনু':1,'মকর':1,'কুম্ভ':1,'মীন':1,
+            // Chinese
+            '白羊座':1,'金牛座':1,'双子座':1,'巨蟹座':1,'狮子座':1,'处女座':1,
+            '天秤座':1,'天蝎座':1,'射手座':1,'摩羯座':1,'水瓶座':1,'双鱼座':1,
+            '牡羊座':1,'雙子座':1,'獅子座':1,'處女座':1,'天蠍座':1,'雙魚座':1,
+            // Japanese
+            '牡牛座':1,'蟹座':1,'乙女座':1,'蠍座':1,'山羊座':1,'魚座':1,
+            // Arabic
+            'الحمل':1,'الثور':1,'الجوزاء':1,'السرطان':1,'الأسد':1,'العذراء':1,
+            'الميزان':1,'العقرب':1,'القوس':1,'الجدي':1,'الدلو':1,'الحوت':1,
+          };
+          const ZODIAC_SET = new Set(Object.keys(ZODIAC_MAP));
+
           const PLANET_WORDS = [
             'Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu','Uranus','Neptune','Pluto',
+            // Hindi planets
             'सूर्य','चंद्र','मंगल','बुध','गुरु','शुक्र','शनि','राहु','केतु',
+            // Chinese planets
             '太阳','月亮','火星','水星','木星','金星','土星',
-            'Sonne','Mond','Merkur','Jupiter','Venus','Saturn',
+            // German planets
+            'Sonne','Mond','Merkur',
+            // Arabic planets
             'الشمس','القمر','المريخ','عطارد','المشتري','الزهرة','زحل',
+            // French planets
+            'Soleil','Lune','Mercure','Jupiter','Vénus','Saturne','Mars',
+            // Spanish planets
+            'Sol','Luna','Marte','Mercurio','Júpiter','Venus','Saturno',
+            // Italian planets
+            'Sole','Luna','Marte','Mercurio','Giove','Venere','Saturno',
+            // Polish planets
+            'Słońce','Księżyc','Mars','Merkury','Jowisz','Wenus','Saturn',
+            // Russian planets
+            'Солнце','Луна','Марс','Меркурий','Юпитер','Венера','Сатурн',
           ];
-          const _allSpecial = [...ZODIAC_WORDS, ...PLANET_WORDS]
-            .sort((a,b) => b.length - a.length)
-            .map(w => w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'));
-          const SPECIAL_RE = new RegExp('(?<!\\*\\*)(' + _allSpecial.join('|') + ')(?!\\*\\*)', 'gu');
-          const TIMING_RE  = /(?<!\*\*)\b(Today|Tomorrow|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Special|Excellent|Favorable|Unfavorable|Good|Bad|Critical|Best|Worst)\b(?!\*\*)/gi;
+
+          const TIMING_RE = /(?<!\*\*)\b(Today|Tomorrow|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Special|Excellent|Favorable|Unfavorable|Good|Bad|Critical|Best|Worst)\b(?!\*\*)/gi;
+
+          // ── Smart bold: only bold zodiac/planet words when they appear as
+          //    standalone tokens — at line start, after punctuation/colon/dash,
+          //    or as the only word-like token on a segment. This prevents
+          //    "cancer research" or "leo messi" from being bolded. ──
+          function boldZodiacSmart(t) {
+            if (!t) return t;
+            // Split on word boundaries preserving separators
+            // Bold a zodiac/planet word only if preceded by: start, whitespace, colon, dash, bullet, newline
+            const zodiacArr = [...ZODIAC_SET, ...PLANET_WORDS]
+              .sort((a,b) => b.length - a.length)
+              .map(w => w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'));
+            // Match word only when it is the whole "slot" — preceded by line-start
+            // or separator character, followed by separator or end
+            const re = new RegExp(
+              '(^|[\\s:•–—\\-,（(\\[])(' + zodiacArr.join('|') + ')(?=[\\s:•–—\\-,）)\\].,!?]|$)',
+              'gmu'
+            );
+            return t.replace(re, (m, pre, word) => {
+              // Already bolded
+              if (t.slice(t.indexOf(word)-2, t.indexOf(word)) === '**') return m;
+              return pre + '**' + word + '**';
+            });
+          }
 
           function applyBold(t) {
             if (!t) return t;
-            t = t.replace(SPECIAL_RE, '**$1**');
-            t = t.replace(/(?<!\*)\b([A-Z]{3,})\b(?!\*)/g, '**$1**');
+            t = boldZodiacSmart(t);
+            // Numbers with units (currency, percent, ordinals)
             t = t.replace(/(?<!\*)\b(\d+(?:\.\d+)?\s*[%₹$€£]|[₹$€£]\s*\d+(?:\.\d+)?|\d+(?:st|nd|rd|th))\b(?!\*)/g, '**$1**');
             t = t.replace(TIMING_RE, '**$1**');
             t = t.replace(/\*{4}/g,'**').replace(/\*\*(\s+)\*\*/g,'$1');
@@ -167,41 +262,84 @@ jobs:
           }
 
           posts = posts.map(p => ({
-            // NO applyBold on title — title is plain text only, no emojis added
-            title:   p.title,
+            title:   p.title,  // title: plain text, no bold, no emoji
             content: p.content.map(l => l ? applyBold(l) : l),
           }));
 
-          // ── Emoji handling — content lines only, NOT title ──
+          // ── Detect if content is astro/list style or paragraph style ──
+          // Paragraph style = long lines (avg > 60 chars), few short lines
+          // List/astro style = many short lines, or lines starting with emojis/bullets
           const HAS_EMOJI_ANYWHERE = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u;
+
+          function isAstroContent(allPosts) {
+            // Check title or content for zodiac/astro keywords across all posts
+            const allText = allPosts.map(p =>
+              (p.title||'') + ' ' + (p.content||[]).join(' ')
+            ).join(' ').toLowerCase();
+            // Zodiac keywords in any language
+            const hasZodiac = [...ZODIAC_SET].some(w => allText.includes(w.toLowerCase()));
+            const hasAstroKw = /zodiac|horoscope|rashifal|rashi|astro|kundali|nakshatra|lagna|graha|horoskop|horóscopo|horoscope|гороскоп|burç|ramalan/i.test(allText);
+            return hasZodiac || hasAstroKw;
+          }
+
+          function isParagraphStyle(contentLines) {
+            const nonEmpty = contentLines.filter(l => l && cleanText(l).length > 0);
+            if (!nonEmpty.length) return false;
+            const avgLen = nonEmpty.reduce((s,l) => s + cleanText(l).length, 0) / nonEmpty.length;
+            // If average line is long (>55 chars) and there are few lines → paragraph
+            return avgLen > 55 && nonEmpty.length <= 6;
+          }
+
+          const isAstro = isAstroContent(posts);
+
           function topicEmoji(t) {
             const s = (t||'').toLowerCase();
-            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces|zodiac|rashi|horoscope|rashifal/i.test(s)) return '🔮';
-            if (/lucky|luck|fortune|auspicious/i.test(s))  return '🍀';
-            if (/warning|caution|alert|danger/i.test(s)) return '⚠️';
-            if (/love|heart|romance|relationship/i.test(s)) return '❤️';
-            if (/money|wealth|finance|earn|profit/i.test(s)) return '💰';
-            if (/health|fitness|body/i.test(s)) return '💪';
-            if (/career|job|work|business/i.test(s)) return '💼';
-            if (/study|learn|education|knowledge/i.test(s)) return '📚';
-            if (/travel|journey|trip/i.test(s)) return '✈️';
-            if (/family|home|house/i.test(s)) return '🏠';
-            if (/sun|solar/i.test(s)) return '☀️';
-            if (/moon|lunar/i.test(s)) return '🌙';
-            if (/fire|energy|passion/i.test(s)) return '🔥';
-            if (/win|success|victory/i.test(s)) return '🏆';
+            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces|zodiac|rashi|horoscope|rashifal|horoskop|burç/i.test(s)) return '🔮';
+            if (/lucky|luck|fortune|auspicious|geluk|fortuna|glück|chance/i.test(s)) return '🍀';
+            if (/warning|caution|alert|danger|waarschuwing|avertissement/i.test(s)) return '⚠️';
+            if (/love|heart|romance|relationship|liebe|amour|amor|amore/i.test(s)) return '❤️';
+            if (/money|wealth|finance|earn|profit|geld|argent|dinero|soldi/i.test(s)) return '💰';
+            if (/health|fitness|body|gesundheit|santé|salud|salute/i.test(s)) return '💪';
+            if (/career|job|work|business|karriere|carrière|carrera/i.test(s)) return '💼';
+            if (/study|learn|education|knowledge|studie|éducation/i.test(s)) return '📚';
+            if (/travel|journey|trip|reise|voyage|viaje|viaggio/i.test(s)) return '✈️';
+            if (/family|home|house|familie|famille|familia|famiglia/i.test(s)) return '🏠';
+            if (/sun|solar|sonne|soleil|sol|sole/i.test(s)) return '☀️';
+            if (/moon|lunar|mond|lune|luna/i.test(s)) return '🌙';
+            if (/fire|energy|passion|feuer|feu|fuego/i.test(s)) return '🔥';
+            if (/win|success|victory|erfolg|succès|éxito/i.test(s)) return '🏆';
             return '✨';
           }
-          function ensureEmojiContent(line) {
+
+          function processContentLine(line, isAstro, isPara) {
             if (!line || !line.trim()) return line;
             const plain = cleanText(line);
-            if (HAS_EMOJI_ANYWHERE.test(plain)) return line;
-            return topicEmoji(plain) + ' ' + line.trimStart();
+            const hasEmoji = HAS_EMOJI_ANYWHERE.test(plain);
+
+            // If line already has emoji — keep as-is (emoji acts as bullet)
+            if (hasEmoji) return line;
+
+            // Paragraph mode: no emoji added, render as plain text
+            if (isPara) return line;
+
+            // Astro or list mode: add emoji as bullet at start
+            if (isAstro) return topicEmoji(plain) + ' ' + line.trimStart();
+
+            // Non-astro list: only add emoji if line is short (looks like a list item)
+            // Long lines (>80 chars) are treated as paragraph sentences — no bullet
+            if (plain.length <= 80) return topicEmoji(plain) + ' ' + line.trimStart();
+
+            // Long line in non-astro content → no emoji
+            return line;
           }
-          posts = posts.map(p => ({
-            title:   p.title,  // title: no emoji added
-            content: p.content.map(l => ensureEmojiContent(l)),
-          }));
+
+          posts = posts.map(p => {
+            const isPara = isParagraphStyle(p.content || []);
+            return {
+              title:   p.title,
+              content: (p.content || []).map(l => processContentLine(l, isAstro, isPara)),
+            };
+          });
 
           const EMOJI_FONT = `'Apple Color Emoji','Noto Color Emoji','Segoe UI Emoji','Segoe UI Symbol'`;
           const BASE_FONT  = `'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif,${EMOJI_FONT}`;
