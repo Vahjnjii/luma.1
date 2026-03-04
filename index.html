@@ -995,28 +995,24 @@ document.addEventListener('click', e => {
 /* ═══════════════════════════════════════════════════════════
    GITHUB API
    ═══════════════════════════════════════════════════════════ */
-// Pick a free issue lane based on how many jobs are currently generating.
-// Each active job occupies one lane so they all hit different issues in parallel.
-function pickIssueLane() {
+// Assign a lane to a session at creation time using a rotating counter.
+// This guarantees each concurrent job gets a unique issue number
+// regardless of async timing — lanes are pre-assigned, not picked at fire time.
+let _laneCounter = 0;
+function assignLane() {
   const issues = CFG.issues || [CFG.issue || 1];
-  const usedLanes = _sessions
-    .filter(s => s.status === 'generating' && s.issueLane != null)
-    .map(s => s.issueLane);
-  for (const lane of issues) {
-    if (!usedLanes.includes(lane)) return lane;
-  }
-  // All lanes busy — fall back to first (shouldn't happen if MAX_ACTIVE <= issues.length)
-  return issues[0];
+  const lane = issues[_laneCounter % issues.length];
+  _laneCounter++;
+  return lane;
 }
 
 async function ghComment(type, payload) {
   const prefix = type === 'render-video' ? 'LUMA_VID' : 'LUMA_IMG';
   const body   = prefix + ':' + JSON.stringify(payload);
 
-  // Pick a unique issue lane for this job so each Action triggers independently
-  const lane = pickIssueLane();
-  // Store the lane on the session so pickIssueLane knows it's occupied
-  updateSession(payload.jobId, { issueLane: lane });
+  // Use the lane that was pre-assigned to this session at creation time
+  const s = getSession(payload.jobId);
+  const lane = (s && s.issueLane) ? s.issueLane : (CFG.issues ? CFG.issues[0] : 1);
 
   console.log('[LUMA] Posting comment to GitHub issue', lane, '| prefix:', prefix, '| jobId:', payload.jobId);
 
@@ -1309,7 +1305,8 @@ async function sendMsg() {
     jobId, prompt:text, label:text.slice(0,80),
     tpl:_tpl, ts:Date.now(), status:'queued',
     done:0, total:0, seenCount:0,
-    vidDuration:parseInt($('dur-input')?.value||'30',10)
+    vidDuration:parseInt($('dur-input')?.value||'30',10),
+    issueLane: assignLane(),  // pre-assign lane at creation so parallel jobs never collide
   };
   addSession(sess);
   addHist({jobId,prompt:text,label:text.slice(0,80),tpl:_tpl,ts:Date.now(),status:'processing'});
