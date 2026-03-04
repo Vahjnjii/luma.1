@@ -1,1 +1,1 @@
-{"jobId":"j-uuee15ci4-1772602413174","deviceId":"uuee15ci4","status":"processing","template":"imggen","total":0,"done":0,"label":"Processing…","timestamp":1772602421000,"results":[]}
+{"status":"error","jobId":"j-uuee15ci4-1772602413174","error":"Image generation failed. Check Actions logs.","results":[],"done":0,"total":0,"timestamp":1772602422412}
