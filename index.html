@@ -996,7 +996,8 @@ async function ghComment(type, payload) {
   const prefix = type === 'render-video' ? 'LUMA_VID' : 'LUMA_IMG';
   const body   = prefix + ':' + JSON.stringify(payload);
 
-  // Call your Cloudflare Worker — token is hidden inside the worker
+  console.log('[LUMA] Posting comment to GitHub issue', CFG.issue, '| prefix:', prefix, '| jobId:', payload.jobId);
+
   const r = await fetch(CFG.worker, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1007,15 +1008,20 @@ async function ghComment(type, payload) {
       body,
     })
   });
+
+  const data = await r.json().catch(()=>({}));
+
   if (!r.ok) {
-    const err = await r.json().catch(() => ({}));
+    console.error('[LUMA] Worker error', r.status, data);
     const msgs = {
-      401: 'Token invalid or expired. Re-add GH_TOKEN secret in Cloudflare Worker.',
-      403: `No permission. Ensure token has 'public_repo' scope.`,
-      404: `Repo or issue not found. Check owner="${CFG.owner}", repo="${CFG.repo}", issue=${CFG.issue}.`
+      401: 'GitHub token invalid or expired — re-add GH_TOKEN secret in Cloudflare Worker.',
+      403: "No permission — ensure GH_TOKEN has 'repo' scope in Cloudflare Worker.",
+      404: `Repo/issue not found — check CFG: owner=${CFG.owner}, repo=${CFG.repo}, issue=${CFG.issue}`
     };
-    throw new Error(msgs[r.status] || `Error ${r.status}: ${err.error || 'Unknown'}`);
+    throw new Error(msgs[r.status] || `Worker error ${r.status}: ${JSON.stringify(data)}`);
   }
+
+  console.log('[LUMA] Comment posted successfully, GitHub comment id:', data.id);
 }
 
 async function pollStatus(jobId) {
@@ -1093,19 +1099,52 @@ async function _kickGeneration(jobId){
     if(s.tpl==='vidgen') await ghComment('render-video',{jobId,overlayText:s.prompt.slice(0,200),duration:s.vidDuration||30,deviceId:_user.id});
     else await ghComment('render-image',{jobId,text:s.prompt,deviceId:_user.id});
     startPolling(jobId);
+    // Timeout guard: if still no result after 3 min, mark as error
+    setTimeout(()=>{
+      const ss=getSession(jobId);
+      if(ss&&ss.status==='generating'){
+        const elapsed=Date.now()-ss.ts;
+        if(elapsed>180000){
+          clearInterval(ss.pollInterval);ss.pollInterval=null;
+          updateSession(jobId,{status:'error',errorMsg:'Timed out after 3 minutes. Check GitHub Actions tab.'});
+          updateHist(jobId,{status:'error'});
+          if(_activeJobId===jobId){
+            updateGroupHd(jobId,0,0,'error');
+            addErrMsg('No response from GitHub Actions after 3 minutes. Check your repo Actions tab — the workflow may have failed to start.');
+          }
+          renderSessionBar();processQueue();
+        }
+      }
+    }, 180000);
   } catch(e){
     updateSession(jobId,{status:'error',errorMsg:e.message});
     updateHist(jobId,{status:'error'});
     renderSessionBar();
-    if(_activeJobId===jobId) addErrMsg(e.message);
+    if(_activeJobId===jobId){
+      updateGroupHd(jobId,0,0,'error');
+      addErrMsg('Failed to trigger GitHub Actions: '+e.message);
+    }
     processQueue();
   }
 }
 function startPolling(jobId){
   const s=getSession(jobId);if(!s)return;
   if(s.pollInterval)clearInterval(s.pollInterval);
-  const iv=setInterval(()=>doPoll(jobId),4000);
+  // Poll every 3s; also refresh header every tick to show live elapsed time
+  const iv=setInterval(()=>{
+    doPoll(jobId);
+    // Keep header timer ticking even before first result
+    const sess=getSession(jobId);
+    if(sess&&sess.status==='generating'&&_activeJobId===jobId){
+      const hd=$('ghd-'+jobId);
+      if(hd&&!hd.querySelector('.fa-check-circle')&&!hd.querySelector('.fa-circle-exclamation')){
+        updateGroupHd(jobId,sess.done||0,sess.total||0,'processing');
+      }
+    }
+  },3000);
   s.pollInterval=iv;
+  // Immediately show "posting to GitHub" state
+  if(_activeJobId===jobId) updateGroupHd(jobId,0,0,'processing');
 }
 async function doPoll(jobId){
   const s=getSession(jobId);if(!s)return;
@@ -1146,7 +1185,13 @@ async function doPoll(jobId){
         renderSessionBar();processQueue();
       }
     }
-  } catch {}
+  } catch(err) {
+    // Don't crash polling on network errors — just show in UI if active
+    const s = getSession(jobId);
+    if (s && _activeJobId === jobId) {
+      updateGroupHd(jobId, s.done||0, s.total||0, 'polling_error');
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1331,20 +1376,53 @@ function addImgGroup(jobId) {
   msgs().appendChild(d);
 }
 function updateGroupHd(jobId,done,total,status) {
-  const hd=$(`ghd-${jobId}`);if(!hd)return;
+  const hd=$('ghd-'+jobId);if(!hd)return;
+  const j=xe(jobId);
   if(status==='done'){
-    const j=xe(jobId);
     hd.innerHTML=`
       <div class="group-hd-l">
-        <i class="fas fa-check" style="color:var(--gn)"></i>
-        <span>${done} image${done!==1?'s':''} ready</span>
+        <i class="fas fa-check-circle" style="color:var(--gn);font-size:15px"></i>
+        <span style="color:var(--gn);font-weight:700">${done} image${done!==1?'s':''} ready ✓</span>
       </div>
       <button class="dl-all-btn" id="dla-${j}" onclick="dlAll('${j}',${done})">
         <i class="fas fa-cloud-arrow-down"></i> Download All (${done})
       </button>`;
+  } else if(status==='error'){
+    const s=getSession(jobId);
+    const msg=s?.errorMsg||'Generation failed.';
+    hd.innerHTML=`<div class="group-hd-l">
+      <i class="fas fa-circle-exclamation" style="color:var(--rd)"></i>
+      <span style="color:var(--rd);font-weight:600">Failed — ${xe(msg)}</span>
+    </div>`;
+  } else if(status==='polling_error'){
+    hd.innerHTML=`<div class="group-hd-l">
+      <i class="fas fa-wifi" style="color:var(--yw)"></i>
+      <span style="color:var(--yw)">Waiting for response… retrying</span>
+    </div>`;
   } else if(status==='processing'){
-    const sp=hd.querySelector('.group-hd-l span');
-    if(sp) sp.textContent=`Processing ${done} of ${total}…`;
+    if(total>0){
+      const pct=Math.round((done/total)*100);
+      hd.innerHTML=`<div class="group-hd-l">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>Generating ${done} of ${total} images… <span style="color:var(--ac);font-weight:700">${pct}%</span></span>
+      </div>`;
+    } else {
+      const elapsed=Math.round((Date.now()-(getSession(jobId)?.ts||Date.now()))/1000);
+      const step = elapsed<15 ? '⚡ Posting to GitHub…'
+                 : elapsed<35 ? '⏳ GitHub Actions starting…'
+                 : elapsed<70 ? '🔄 Generating images…'
+                 : '🔄 Still working… (large batch)';
+      hd.innerHTML=`<div class="group-hd-l">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>${step} <span style="color:var(--tx3);font-size:11px">${elapsed}s</span></span>
+      </div>`;
+    }
+  } else {
+    // queued
+    hd.innerHTML=`<div class="group-hd-l">
+      <i class="fas fa-layer-group" style="color:var(--tx3)"></i>
+      <span style="color:var(--tx3)">Queued — waiting for a free slot…</span>
+    </div>`;
   }
 }
 
