@@ -359,17 +359,28 @@ jobs:
           }
           function smartWrap(txt,cpl) { if(!txt)return['']; const p=clean(txt),sp=(p.match(/ /g)||[]).length,wc=[...p].filter(isWide).length; return (wc>p.length*.3||(wc>2&&sp<2))?wrapCJK(txt,cpl):wrapLatin(txt,cpl); }
           
+          // ══════════════════════════════════════════════════════════════
+          // renderLine — correct bold + emoji interaction
+          //
+          // OLD (broken): split PLAIN text by emoji first → then guess bold
+          //   → When an emoji exists, ALL bold formatting was silently lost
+          //     because the whole text became one un-bold segment.
+          //
+          // NEW (correct): parse bold markers first → then split each
+          //   bold/normal segment by emoji → render each piece correctly.
+          //   Bold applies inside emoji segments too (e.g. "🌟 **Aries**").
+          // ══════════════════════════════════════════════════════════════
           function renderLine(px, y, fs, fw, fill, raw) {
-            const textStr  = clean(raw);
-            const segs     = splitSegments(textStr);
-            const hasEmoji = segs.some(s => s.type === 'emoji');
-            const boldSegs = parseBold(raw);
+            const boldSegs = parseBold(raw);   // [{t, b:bool}] from ** markers in raw
             const hasBold  = boldSegs.some(s => s.b);
+          
+            // ── Check for any emoji in any segment ──
+            const hasEmoji = boldSegs.some(s => splitSegments(s.t).some(sg => sg.type === 'emoji'));
           
             // ── No emoji: fast path ──
             if (!hasEmoji) {
               if (!hasBold) {
-                return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(sanitizeText(textStr))}</text>`;
+                return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(sanitizeText(clean(raw)))}</text>`;
               }
               const sp = boldSegs.map(s =>
                 `<tspan font-weight="${s.b?900:fw}" fill="${s.b?'#FFFFFF':fill}">${xe(sanitizeText(s.t))}</tspan>`
@@ -377,41 +388,45 @@ jobs:
               return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${sp}</text>`;
             }
           
-            // ── Has emoji: mixed rendering ──
+            // ── Has emoji: iterate boldSegs, split each by emoji ──
+            // This preserves bold state correctly for every emoji and text fragment.
             const eSize = Math.round(fs * 1.1);
             const eTop  = y - Math.round(fs * 0.85);
             const parts = [];
             let   xCur  = px;
           
-            for (const seg of segs) {
-              if (seg.type === 'emoji') {
-                const uri = emojiCache[emojiToHex(seg.val)];
-                if (uri) {
-                  // Both xlink:href (SVG 1.1) and href (SVG 2) for max browser compat
-                  parts.push(
+            for (const bseg of boldSegs) {
+              const segFw   = bseg.b ? 900 : fw;
+              const segFill = bseg.b ? '#FFFFFF' : fill;
+              const subSegs = splitSegments(bseg.t); // split this bold/normal chunk by emoji
+          
+              for (const ss of subSegs) {
+                if (ss.type === 'emoji') {
+                  const uri = emojiCache[emojiToHex(ss.val)];
+                  if (uri) {
+                    parts.push(
           `<image x="${Math.round(xCur)}" y="${eTop}" width="${eSize}" height="${eSize}" ` +
           `xlink:href="${uri}" href="${uri}" preserveAspectRatio="xMidYMid meet"/>`
-                  );
-                  xCur += eSize + 4;
+                    );
+                    xCur += eSize + 4;
+                  } else {
+                    // Twemoji fetch failed → render ▸ bullet in correct bold/color
+                    parts.push(
+          `<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" ` +
+          `font-size="${fs}" font-weight="${segFw}" fill="${segFill}">&#x25B8;</text>`
+                    );
+                    xCur += fs * 0.6;
+                  }
                 } else {
-                  // Twemoji fetch failed → render a clean ▸ bullet instead of blank/numbers
+                  const safeVal = sanitizeText(ss.val);
+                  if (!safeVal) continue;
                   parts.push(
           `<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" ` +
-          `font-size="${fs}" font-weight="${fw}" fill="${fill}">&#x25B8;</text>`
+          `font-size="${fs}" font-weight="${segFw}" fill="${segFill}" ` +
+          `xml:space="preserve">${xe(safeVal)}</text>`
                   );
-                  xCur += fs * 0.6;
+                  xCur += estW(safeVal, fs);
                 }
-              } else if (seg.val) {
-                const safeVal = sanitizeText(seg.val);
-                if (!safeVal) continue;
-                // Detect if this text segment falls inside a bold marker
-                const inBold = boldSegs.some(b => b.b && b.t.includes(seg.val.trim().slice(0,10)));
-                parts.push(
-                  `<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" ` +
-                  `font-size="${fs}" font-weight="${inBold?900:fw}" fill="${inBold?'#FFFFFF':fill}" ` +
-                  `xml:space="preserve">${xe(safeVal)}</text>`
-                );
-                xCur += estW(safeVal, fs);
               }
             }
             return parts.join('');
