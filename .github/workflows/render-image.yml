@@ -1,4 +1,4 @@
-name: Render Video
+name: Render Images
 
 on:
   issue_comment:
@@ -6,9 +6,9 @@ on:
 
 jobs:
   render:
-    if: startsWith(github.event.comment.body, 'LUMA_VID:')
+    if: startsWith(github.event.comment.body, 'LUMA_IMG:')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: write
       issues: read
@@ -21,7 +21,6 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
-      # Setup Node explicitly — video workflow was missing this
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
@@ -32,9 +31,6 @@ jobs:
         run: |
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
-
-      - name: Install FFmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg -qq
 
       - name: Parse payload
         id: p
@@ -49,49 +45,47 @@ jobs:
           const fs = require('fs');
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `jobId=${d.jobId||''}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `deviceId=${d.deviceId||''}\n`);
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `duration=${d.duration||30}\n`);
-          fs.writeFileSync('/tmp/overlay_text.txt', d.overlayText || '');
-          console.log('Parsed jobId:', d.jobId, '| duration:', d.duration);
+          fs.writeFileSync('/tmp/input_text.txt', d.text || '');
+          console.log('Parsed jobId:', d.jobId, '| text chars:', (d.text||'').length);
           EOF
 
-      # Write processing status with retry push
+      # Write processing status then push — pull+rebase handles parallel conflicts
       - name: Write processing status
         run: |
           JOB_ID="${{ steps.p.outputs.jobId }}"
           DEVICE="${{ steps.p.outputs.deviceId }}"
           mkdir -p api/status
-          printf '{"jobId":"%s","deviceId":"%s","status":"processing","template":"vidgen","total":0,"done":0,"label":"Rendering videos\u2026","timestamp":%s,"results":[]}' \
-            "$JOB_ID" "$DEVICE" "$(date +%s)000" > "api/status/${JOB_ID}.json"
+          node -e "
+            const fs=require('fs');
+            fs.writeFileSync('api/status/${JOB_ID}.json', JSON.stringify({
+              jobId:'${JOB_ID}', deviceId:'${DEVICE}',
+              status:'processing', template:'imggen',
+              total:0, done:0, label:'Processing\u2026',
+              timestamp:Date.now(), results:[]
+            }));
+          "
           for i in $(seq 1 8); do
             git add api/status/${JOB_ID}.json
             git diff --staged --quiet && echo "Nothing to commit" && break
-            git commit -m "start: video ${JOB_ID}" || true
+            git commit -m "start: ${JOB_ID}" || true
             git pull --rebase origin main && git push && echo "Push ok" && break
             echo "Retry $i..." && sleep $((i * 3))
             git rebase --abort 2>/dev/null || true
           done
 
-      - name: Generate video from text (SVG frames → MP4)
-        env:
-          WORKER_URL: ${{ secrets.WORKER_URL }}
-          DURATION:   ${{ steps.p.outputs.duration }}
+      - name: Write generator script
         run: |
-          DURATION="${{ steps.p.outputs.duration }}"
-          JOB_ID="${{ steps.p.outputs.jobId }}"
-          DEVICE_ID="${{ steps.p.outputs.deviceId }}"
-
-          # Use the same AI worker + SVG generator as image mode, then encode to video
-          node --input-type=module << 'JSEOF'
+          cat > /tmp/gen.mjs << 'JSEOF'
           import fs from 'fs';
-          import { execSync } from 'child_process';
 
-          const text     = fs.readFileSync('/tmp/overlay_text.txt', 'utf8').trim();
+          const jobId    = process.env.JOB_ID;
+          const text     = fs.readFileSync('/tmp/input_text.txt', 'utf8').trim();
+          const deviceId = process.env.DEVICE_ID;
           const worker   = process.env.WORKER_URL;
-          const duration = parseInt(process.env.DURATION || '10', 10);
 
-          if (!worker) { console.error('Missing WORKER_URL'); process.exit(1); }
+          if (!jobId || !text) { console.error('Missing jobId or text'); process.exit(1); }
+          if (!worker)         { console.error('Missing WORKER_URL secret'); process.exit(1); }
 
-          // Get posts from AI worker
           let posts = [];
           try {
             const res  = await fetch(worker + '/ai', {
@@ -104,27 +98,310 @@ jobs:
             posts = data.posts || [];
             console.log('Worker returned ' + posts.length + ' post(s)');
           } catch(e) {
-            // Fallback: treat entire text as one post
-            posts = [{ title: text.split('\n')[0] || 'Video', content: text.split('\n').slice(1) }];
+            console.error('Worker error:', e.message);
+            process.exit(1);
           }
-          if (!posts.length) posts = [{ title: text.split('\n')[0] || 'Video', content: [] }];
+          if (!posts.length) { console.error('No posts from Worker'); process.exit(1); }
 
           const cleanText = t => (t||'').replace(/\*\*/g,'').trim();
 
-          const EMOJI_FONT = `'Noto Color Emoji','Segoe UI Emoji','Apple Color Emoji'`;
-          const BASE_FONT  = `'Noto Sans','DejaVu Sans',sans-serif,${EMOJI_FONT}`;
+          function stripPostNumber(title) {
+            return (title||'')
+              .replace(/^\s*(?:post\s*)?\d+\s*[.:)\-]\s*/i, '')
+              .replace(/^\s*\(\d+\)\s*/,                     '')
+              .replace(/^\s*第\s*[\d一二三四五六七八九十百]+\s*[：:条篇部张节]\s*/u, '')
+              .replace(/^\s*[一二三四五六七八九十][、。：\s]/u, '')
+              .replace(/^\s*#+\s*/,                          '')
+              .trim();
+          }
+
+          function decodeEntities(str) {
+            if (!str) return str;
+            return str
+              .replace(/&#(\d+);/g,           (_, n) => { try { return String.fromCodePoint(parseInt(n,10)); } catch { return ''; } })
+              .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h,16)); } catch { return ''; } });
+          }
+
+          posts = posts.map(p => ({
+            title:   decodeEntities(stripPostNumber(p.title   || '')),
+            content: (p.content || []).map(l => decodeEntities(l || '')),
+          }));
+
+          // ── ZODIAC + PLANET WORD LISTS ──
+          // Stored as arrays, NOT as object keys, to avoid JS duplicate-key silently
+          // dropping words (e.g. Aries appears in both Spanish and English).
+          const ZODIAC_WORDS = [
+            // English
+            'Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra',
+            'Scorpio','Sagittarius','Capricorn','Aquarius','Pisces',
+            // German
+            'Widder','Stier','Zwillinge','Krebs','Löwe','Jungfrau',
+            'Waage','Skorpion','Schütze','Steinbock','Wassermann','Fische',
+            // French
+            'Bélier','Taureau','Gémeaux','Vierge','Balance','Scorpion',
+            'Sagittaire','Capricorne','Verseau','Poissons',
+            // Spanish
+            'Tauro','Géminis','Cáncer','Léo','Escorpio','Escorpión',
+            'Sagitario','Capricornio','Acuario','Piscis',
+            // Italian
+            'Ariete','Toro','Gemelli','Cancro','Leone','Vergine','Bilancia',
+            'Scorpione','Sagittario','Capricorno','Acquario','Pesci',
+            // Portuguese
+            'Carneiro','Gêmeos','Gémeos','Caranguejo','Leão','Virgem',
+            'Balança','Escorpião','Sagitário','Capricórnio','Aquário','Peixes',
+            // Dutch
+            'Ram','Tweelingen','Kreeft','Leeuw','Maagd','Weegschaal',
+            'Schorpioen','Boogschutter','Steenbok','Waterman','Vissen',
+            // Polish
+            'Baran','Byk','Bliźnięta','Rak','Lew','Panna','Waga',
+            'Strzelec','Koziorożec','Wodnik','Ryby',
+            // Swedish
+            'Väduren','Oxen','Tvillingarna','Kräftan','Lejonet','Jungfrun',
+            'Vågen','Skorpionen','Skytten','Stenbocken','Vattumannen','Fiskarna',
+            // Norwegian
+            'Væren','Tyren','Tvillingene','Krebsen','Løven','Jomfruen',
+            'Vægten','Stenbukken','Vandmanden','Fiskene',
+            // Danish
+            'Vædderen','Tvillingerne','Krebsen','Løven','Jomfruen',
+            'Vægten','Skorpionen','Skytten','Vandmanden','Fiskene',
+            // Russian
+            'Овен','Телец','Близнецы','Рак','Лев','Дева','Весы',
+            'Скорпион','Стрелец','Козерог','Водолей','Рыбы',
+            // Turkish
+            'Koç','Boğa','İkizler','Yengeç','Aslan','Başak','Terazi',
+            'Akrep','Yay','Oğlak','Kova','Balık',
+            // Indonesian
+            'Domba','Kembar','Ketam','Singa','Perawan','Timbangan',
+            'Kalajengking','Pemanah','Kambing','Kendi','Ikan',
+            // Hindi
+            'मेष','वृषभ','मिथुन','कर्क','कर्कट','सिंह','कन्या',
+            'तुला','वृश्चिक','धनु','मकर','कुंभ','मीन',
+            // Tamil
+            'மேஷம்','ரிஷபம்','மிதுனம்','கடகம்','சிம்மம்','கன்னி',
+            'துலாம்','விருச்சிகம்','தனுசு','மகரம்','கும்பம்','மீனம்',
+            // Malayalam
+            'മേഷം','ഇടവം','മിഥുനം','കർക്കടകം','ചിങ്ങം','കന്നി',
+            'തുലാം','വൃശ്ചികം','ധനു','മകരം','കുംഭം','മീനം',
+            // Telugu
+            'మేషం','వృషభం','మిథునం','కర్కాటకం','సింహం','కన్య',
+            'తుల','వృశ్చికం','ధనుస్సు','మకరం','కుంభం','మీనం',
+            // Kannada
+            'ಮೇಷ','ವೃಷಭ','ಮಿಥುನ','ಕರ್ಕಾಟಕ','ಸಿಂಹ','ಕನ್ಯಾ',
+            'ತುಲಾ','ವೃಶ್ಚಿಕ','ಧನು','ಮಕರ','ಕುಂಭ','ಮೀನ',
+            // Bengali
+            'মেষ','বৃষভ','মিথুন','কর্কট','সিংহ','কন্যা',
+            'তুলা','বৃশ্চিক','ধনু','মকর','কুম্ভ','মীন',
+            // Chinese
+            '白羊座','金牛座','双子座','巨蟹座','狮子座','处女座',
+            '天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座',
+            '牡羊座','雙子座','獅子座','處女座','天蠍座','雙魚座',
+            // Japanese
+            '牡牛座','蟹座','乙女座','蠍座','山羊座','魚座',
+            // Arabic
+            'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء',
+            'الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
+          ];
+
+          const PLANET_WORDS = [
+            'Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu','Uranus','Neptune','Pluto',
+            'सूर्य','चंद्र','मंगल','बुध','गुरु','शुक्र','शनि','राहु','केतु',
+            '太阳','月亮','火星','水星','木星','金星','土星',
+            'Sonne','Mond','Merkur',
+            'الشمس','القمر','المريخ','عطارد','المشتري','الزهرة','زحل',
+            'Soleil','Lune','Mercure','Vénus','Saturne',
+            'Sol','Luna','Marte','Mercurio','Júpiter','Saturno',
+            'Sole','Giove','Venere',
+            'Słońce','Księżyc','Merkury','Jowisz','Wenus',
+            'Солнце','Луна','Марс','Меркурий','Юпитер','Венера','Сатурн',
+          ];
+
+          // Build a lowercase lookup set for fast astro detection
+          const ZODIAC_LOWER_SET = new Set(ZODIAC_WORDS.map(w => w.toLowerCase()));
+
+          const TIMING_RE = /(?<!\*\*)\b(Today|Tomorrow|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Special|Excellent|Favorable|Unfavorable|Good|Bad|Critical|Best|Worst)\b(?!\*\*)/gi;
+
+          // Build ONE regex from all zodiac+planet words sorted longest-first
+          // Uses Unicode word boundaries via lookahead/lookbehind
+          const _boldWords = [...ZODIAC_WORDS, ...PLANET_WORDS]
+            .sort((a, b) => b.length - a.length)
+            .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+          // Match a word only when preceded and followed by non-letter characters
+          // (or start/end of string) — prevents partial matches inside longer words
+          const BOLD_RE = new RegExp(
+            '(?<![\\p{L}\\p{M}])(' + _boldWords.join('|') + ')(?![\\p{L}\\p{M}])',
+            'gu'
+          );
+
+          function applyBold(t) {
+            if (!t) return t;
+            // Bold zodiac/planet words — skip if already wrapped in **
+            t = t.replace(BOLD_RE, (match, word, offset) => {
+              const before = t.slice(Math.max(0, offset - 2), offset);
+              if (before === '**') return match; // already bolded
+              return '**' + word + '**';
+            });
+            // Numbers with units
+            t = t.replace(/(?<!\*)\b(\d+(?:\.\d+)?\s*[%₹$€£]|[₹$€£]\s*\d+(?:\.\d+)?|\d+(?:st|nd|rd|th))\b(?!\*)/g, '**$1**');
+            t = t.replace(TIMING_RE, '**$1**');
+            // Clean up any doubled asterisks
+            t = t.replace(/\*{4}/g, '**').replace(/\*\*(\s+)\*\*/g, '$1');
+            return t;
+          }
+
+          posts = posts.map(p => ({
+            title:   p.title,  // title: no bold, no emoji ever
+            content: p.content.map(l => l ? applyBold(l) : l),
+          }));
+
+          // ── Emoji / bullet logic ──────────────────────────────────────────
+          // Rules (in priority order):
+          // 1. Line already has emoji anywhere → keep EXACTLY as-is, add nothing
+          // 2. Paragraph mode (avg line > 60 chars, ≤ 5 lines) → no emoji, plain text
+          // 3. Astro content detected → add topic emoji as bullet at start
+          // 4. Non-astro, short line (≤ 72 chars) → add topic emoji as bullet
+          // 5. Non-astro, long line → no emoji, plain paragraph text
+
+          const HAS_EMOJI_RE = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/u;
+
+          function hasEmoji(str) {
+            return HAS_EMOJI_RE.test(cleanText(str || ''));
+          }
+
+          function isAstroContent(allPosts) {
+            const allText = allPosts.map(p =>
+              (p.title || '') + ' ' + (p.content || []).join(' ')
+            ).join(' ');
+            // Case-insensitive check against lowercase zodiac set
+            const lower = allText.toLowerCase();
+            if ([...ZODIAC_LOWER_SET].some(w => lower.includes(w))) return true;
+            if (/zodiac|horoscope|rashifal|rashi|\bastro\b|kundali|nakshatra|horoskop|hor[oó]scopo|гороскоп|bur[çc]|ramalan/i.test(allText)) return true;
+            return false;
+          }
+
+          function isParagraphStyle(lines) {
+            const nonEmpty = lines.filter(l => l && cleanText(l).length > 0);
+            if (!nonEmpty.length) return false;
+            const avgLen = nonEmpty.reduce((s, l) => s + cleanText(l).length, 0) / nonEmpty.length;
+            return avgLen > 60 && nonEmpty.length <= 5;
+          }
+
+          const isAstro = isAstroContent(posts);
+
+          function topicEmoji(text) {
+            const s = (text || '').toLowerCase();
+            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces|zodiac|rashi|horoscope|rashifal|horoskop|bur[çc]|rashi/i.test(s)) return '🔮';
+            if (/lucky|luck|fortune|auspicious|geluk|glück/i.test(s))  return '🍀';
+            if (/warning|caution|alert|danger/i.test(s))               return '⚠️';
+            if (/love|heart|romance|relationship|liebe|amour|amor/i.test(s)) return '❤️';
+            if (/money|wealth|finance|earn|profit|geld|argent/i.test(s)) return '💰';
+            if (/health|fitness|body/i.test(s))                        return '💪';
+            if (/career|job|work|business/i.test(s))                   return '💼';
+            if (/study|learn|education|knowledge/i.test(s))            return '📚';
+            if (/travel|journey|trip/i.test(s))                        return '✈️';
+            if (/family|home|house/i.test(s))                          return '🏠';
+            if (/\bsun\b|solar/i.test(s))                             return '☀️';
+            if (/\bmoon\b|lunar/i.test(s))                            return '🌙';
+            if (/fire|energy|passion/i.test(s))                        return '🔥';
+            if (/win|success|victory/i.test(s))                        return '🏆';
+            return '✨';
+          }
+
+          function processLine(line, astro, para) {
+            if (!line || !line.trim()) return line;
+            // Rule 1: already has emoji → keep exactly as-is
+            if (hasEmoji(line)) return line;
+            // Rule 2: paragraph mode → no bullet
+            if (para) return line;
+            const plain = cleanText(line);
+            // Rule 3 & 4: add emoji bullet
+            if (astro || plain.length <= 72) return topicEmoji(plain) + ' ' + line.trimStart();
+            // Rule 5: long non-astro line → plain
+            return line;
+          }
+
+          posts = posts.map(p => {
+            const para = isParagraphStyle(p.content || []);
+            return {
+              title:   p.title,
+              content: (p.content || []).map(l => processLine(l, isAstro, para)),
+            };
+          });
+
+          const EMOJI_FONT = `'Apple Color Emoji','Noto Color Emoji','Segoe UI Emoji','Segoe UI Symbol'`;
+          const BASE_FONT  = `'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif,${EMOJI_FONT}`;
 
           function xe(s) {
             return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
           }
+          function parseBold(text) {
+            const segs = [], re = /\*\*(.*?)\*\*/g;
+            let last = 0, m;
+            while ((m = re.exec(text)) !== null) {
+              if (m.index > last) segs.push({ t: text.slice(last, m.index), bold: false });
+              if (m[1])           segs.push({ t: m[1], bold: true });
+              last = re.lastIndex;
+            }
+            if (last < text.length) segs.push({ t: text.slice(last), bold: false });
+            return segs.filter(s => s.t);
+          }
+
+          // ── renderLine: plain line ──
+          function renderLine(px, y, fs, fw, fill, rawText) {
+            const segs = parseBold(rawText);
+            const hasBold = segs.some(s => s.bold);
+            if (!hasBold)
+              return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(cleanText(rawText))}</text>`;
+            const spans = segs.map(s =>
+              `<tspan font-weight="${s.bold?900:fw}" fill="${s.bold?'#FFFFFF':fill}">${xe(s.t)}</tspan>`
+            ).join('');
+            return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${spans}</text>`;
+          }
+
+          // ── renderBulletLine: emoji bullet + indented wrapped text ──
+          // The first emoji acts as a bullet point. Continuation lines indent to align after it.
+          function renderBulletLine(px, y, fs, fw, fill, rawText, blh, bCPL, W, PX) {
+            const plain = cleanText(rawText);
+            // Detect leading emoji
+            const emojiRE = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F\u20E3?|\p{Emoji}\uFE0F)/u;
+            const em = plain.match(emojiRE);
+            if (!em) return [renderLine(px, y, fs, fw, fill, rawText), y + blh];
+
+            const emojiChar = em[0];
+            const emojiW    = Math.round(fs * 1.2);   // emoji column width
+            const indent    = px + emojiW + Math.round(fs * 0.35); // text starts here
+            const textCW    = W - indent - PX;
+            const textCPL   = Math.floor(textCW / (fs * 0.50));
+
+            // Strip the leading emoji from the rest of the text
+            const rest = rawText.slice(rawText.indexOf(emojiChar) + emojiChar.length).trimStart();
+
+            // Wrap the rest into lines that fit within the indented column
+            const wrapped = wrapLatin(rest, textCPL);
+
+            const out = [];
+            // Emoji on first line
+            out.push(`<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(emojiChar)}</text>`);
+            // First text line beside the emoji
+            if (wrapped[0]) out.push(renderLine(indent, y, fs, fw, fill, wrapped[0]));
+            // Continuation lines indented
+            let cy = y + blh;
+            for (let i = 1; i < wrapped.length; i++) {
+              out.push(renderLine(indent, cy, fs, fw, fill, wrapped[i]));
+              cy += blh;
+            }
+            return [out.join('\n'), cy];
+          }
+
           function isWide(ch) {
             const cp = ch.codePointAt(0);
             return (cp>=0x1F000||(cp>=0x2600&&cp<=0x27FF)||(cp>=0x4E00&&cp<=0x9FFF)||
-              (cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF));
+              (cp>=0x3400&&cp<=0x4DBF)||(cp>=0x20000&&cp<=0x2FA1F)||
+              (cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||
+              (cp>=0xFF00&&cp<=0xFFEF)||(cp>=0x3000&&cp<=0x303F)||(cp>=0x3200&&cp<=0x33FF));
           }
           function charVisLen(str) { let n=0; for(const ch of [...(str||'')]) n+=isWide(ch)?2:1; return n; }
-          function wrapText(text, cpl) {
-            const words=text.split(' '), lines=[];let cur='',curLen=0;
+          function wrapLatin(text,cpl) {
+            const words=text.split(' '),lines=[];let cur='',curLen=0;
             for(const word of words){
               const wLen=charVisLen(cleanText(word)),sep=cur?1:0;
               if(curLen+sep+wLen>cpl&&cur){lines.push(cur);cur=word;curLen=wLen;}
@@ -132,195 +409,138 @@ jobs:
             }
             if(cur)lines.push(cur);return lines.length?lines:[''];
           }
+          function wrapCJK(text,cpl) {
+            const lines=[];let curRaw='',curLen=0,inBold=false;
+            const chars=[...text];let i=0;
+            while(i<chars.length){
+              if(chars[i]==='*'&&chars[i+1]==='*'){curRaw+='**';inBold=!inBold;i+=2;continue;}
+              const ch=chars[i],chLen=isWide(ch)?2:1;
+              if(curLen+chLen>cpl&&cleanText(curRaw).length>0){
+                if(inBold)curRaw+='**';lines.push(curRaw);
+                curRaw=inBold?'**'+ch:ch;curLen=chLen;
+              }else{curRaw+=ch;curLen+=chLen;}
+              i++;
+            }
+            if(cleanText(curRaw))lines.push(curRaw);return lines.length?lines:[''];
+          }
+          function smartWrap(text,cpl) {
+            if(!text)return[''];
+            const plain=cleanText(text);
+            const wideCount=[...plain].filter(isWide).length;
+            const spaceCount=(plain.match(/ /g)||[]).length;
+            return(wideCount>plain.length*0.3||(wideCount>2&&spaceCount<2))?wrapCJK(text,cpl):wrapLatin(text,cpl);
+          }
 
-          function makeSVG(post) {
+          async function makeSVG(post, imgIndex) {
             const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOTTOM=H-PY;
-            const rawTitle=(post.title||'').trim(), content=(post.content||[]).filter(l=>l&&l.trim());
+            const rawTitle=(post.title||'').trim(),content=(post.content||[]);
             const visLen=charVisLen(cleanText(rawTitle))+charVisLen(content.map(l=>cleanText(l||'')).join(''));
 
             let ts,bs,tlh,blh,gap;
-            if(visLen<80){ts=96;bs=62;tlh=Math.round(96*1.40);blh=Math.round(62*1.55);gap=76;}
-            else if(visLen<150){ts=86;bs=55;tlh=Math.round(86*1.40);blh=Math.round(55*1.55);gap=68;}
-            else if(visLen<260){ts=74;bs=49;tlh=Math.round(74*1.40);blh=Math.round(49*1.55);gap=58;}
-            else if(visLen<420){ts=65;bs=44;tlh=Math.round(65*1.40);blh=Math.round(44*1.55);gap=50;}
-            else if(visLen<620){ts=55;bs=40;tlh=Math.round(55*1.40);blh=Math.round(40*1.55);gap=44;}
-            else{ts=48;bs=35;tlh=Math.round(48*1.40);blh=Math.round(35*1.55);gap=36;}
+            if(visLen<80){ts=96;bs=62;tlh=134;blh=96;gap=76;}
+            else if(visLen<150){ts=86;bs=55;tlh=120;blh=86;gap=68;}
+            else if(visLen<260){ts=74;bs=49;tlh=104;blh=76;gap=58;}
+            else if(visLen<420){ts=65;bs=44;tlh=92;blh=68;gap=50;}
+            else if(visLen<620){ts=55;bs=40;tlh=80;blh=62;gap=44;}
+            else if(visLen<900){ts=48;bs=35;tlh=70;blh=54;gap=36;}
+            else{ts=41;bs=31;tlh=60;blh=48;gap=32;}
 
-            const tCPL=Math.floor(CW/(ts*0.50)), bCPL=Math.floor(CW/(bs*0.50));
-            const titleLines = wrapText(rawTitle, tCPL);
+            // line height = font size * 1.55 for a little extra breathing room (not a full line gap)
+            blh = Math.round(bs * 1.55);
+            tlh = Math.round(ts * 1.40);
+
+            const tCPL=Math.floor(CW/(ts*0.50)),bCPL=Math.floor(CW/(bs*0.50));
+            const titleLines=smartWrap(rawTitle,tCPL);
+
+            const totalH_estimate = titleLines.length*tlh + gap + content.filter(l=>cleanText(l||'')).length * blh * 1.3;
+            let y = totalH_estimate>(H-PY*2) ? PY+ts : Math.max(PY+ts, Math.round((H-totalH_estimate)/2)+ts);
 
             const els=[];
-            const totalH = titleLines.length*tlh + gap + content.length*blh*1.2;
-            let y = totalH>(H-PY*2) ? PY+ts : Math.max(PY+ts, Math.round((H-totalH)/2)+ts);
 
-            // Title
+            // ── Title — plain text, no emoji, bold white ──
             for(const line of titleLines){
               if(y>BOTTOM+ts)break;
-              els.push(`<text x="${PX}" y="${y}" font-family="${BASE_FONT}" font-size="${ts}" font-weight="800" fill="#FFFFFF" xml:space="preserve">${xe(cleanText(line))}</text>`);
+              els.push(renderLine(PX,y,ts,800,'#FFFFFF',line));
               y+=tlh;
             }
 
-            // Divider
-            if(content.length){
+            // ── Divider bar after title ──
+            if(content.filter(l=>cleanText(l||'')).length){
               const ay=y+Math.round(gap*0.28);
               if(ay<BOTTOM) els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);
               y+=gap;
             }
 
-            // Body lines with emoji bullet layout
-            const HAS_EMOJI = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u;
-            const emojiRE   = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F\u20E3?|\p{Emoji}\uFE0F)/u;
+            // ── Body lines — emoji bullet layout ──
             for(const line of content){
-              if(y>BOTTOM+bs)break;
-              const plain = cleanText(line);
-              const em = plain.match(emojiRE);
-              if(em){
-                const emojiChar = em[0];
-                const emojiW    = Math.round(bs*1.2);
-                const indent    = PX + emojiW + Math.round(bs*0.35);
-                const textCPL   = Math.floor((W-indent-PX)/(bs*0.50));
-                const rest      = line.slice(line.indexOf(emojiChar)+emojiChar.length).trimStart();
-                const wrapped   = wrapText(cleanText(rest), textCPL);
-                els.push(`<text x="${PX}" y="${y}" font-family="${BASE_FONT}" font-size="${bs}" font-weight="400" fill="rgba(255,255,255,0.88)" xml:space="preserve">${xe(emojiChar)}</text>`);
-                if(wrapped[0]) els.push(`<text x="${indent}" y="${y}" font-family="${BASE_FONT}" font-size="${bs}" font-weight="400" fill="rgba(255,255,255,0.88)" xml:space="preserve">${xe(wrapped[0])}</text>`);
-                let cy=y+blh;
-                for(let i=1;i<wrapped.length;i++){
-                  els.push(`<text x="${indent}" y="${cy}" font-family="${BASE_FONT}" font-size="${bs}" font-weight="400" fill="rgba(255,255,255,0.88)" xml:space="preserve">${xe(wrapped[i])}</text>`);
-                  cy+=blh;
-                }
-                y=cy;
-              } else {
-                const wrapped = wrapText(plain, bCPL);
-                for(const w of wrapped){
-                  if(y>BOTTOM+bs)break;
-                  els.push(`<text x="${PX}" y="${y}" font-family="${BASE_FONT}" font-size="${bs}" font-weight="400" fill="rgba(255,255,255,0.88)" xml:space="preserve">${xe(w)}</text>`);
-                  y+=blh;
-                }
+              if(!cleanText(line||'')){
+                // Empty line = small half-gap spacer
+                y += Math.round(blh * 0.35);
+                continue;
               }
+              if(y>BOTTOM+bs)break;
+              const [svgEl, newY] = renderBulletLine(PX, y, bs, 400, 'rgba(255,255,255,0.88)', line, blh, bCPL, W, PX);
+              els.push(svgEl);
+              y = newY;
             }
 
-            return [
+            return[
               '<?xml version="1.0" encoding="UTF-8"?>',
               `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`,
+              '<defs>',
+              // Pure black background
+              '</defs>',
               `<rect width="${W}" height="${H}" fill="#000000"/>`,
-              '<g>', ...els, '</g>', '</svg>'
+              '<g>',
+              ...els,
+              '</g>','</svg>',
             ].join('\n');
           }
 
-          // Generate one MP4 per post — each exactly `duration` seconds
-          const frameDir = '/tmp/frames';
-          fs.mkdirSync(frameDir, { recursive: true });
-
-          const videoFiles = [];
-          for(let i=0; i<posts.length; i++){
-            const svg     = makeSVG(posts[i]);
-            const svgPath = `${frameDir}/post_${i}.svg`;
-            const pngPath = `${frameDir}/post_${i}.png`;
-            const mp4Path = `${frameDir}/post_${i}.mp4`;
-            fs.writeFileSync(svgPath, svg);
-            // SVG → PNG
-            execSync(`ffmpeg -y -i "${svgPath}" "${pngPath}" 2>/dev/null`, {stdio:'pipe'});
-            // PNG → MP4 (exactly duration seconds, still image looped)
-            execSync([
-              'ffmpeg -y',
-              `-loop 1 -i "${pngPath}"`,
-              `-t ${duration}`,
-              '-vf scale=1080:1920:flags=lanczos',
-              '-c:v libx264 -preset fast -crf 22',
-              '-pix_fmt yuv420p',
-              '-movflags +faststart',
-              `"${mp4Path}"`
-            ].join(' '), {stdio:'pipe'});
-            videoFiles.push(mp4Path);
-            console.log(`Video ${i+1}/${posts.length} encoded`);
+          const dir='api/status';
+          fs.mkdirSync(dir,{recursive:true});
+          const results=[];
+          for(let i=0;i<posts.length;i++){
+            const svg=await makeSVG(posts[i], i+1);
+            results.push({title:cleanText(posts[i].title),svg});
+            const isLast=i===posts.length-1;
+            fs.writeFileSync(`${dir}/${jobId}.json`,JSON.stringify({
+              jobId,deviceId,
+              status:isLast?'done':'processing',
+              template:'imggen',
+              total:posts.length,
+              done:i+1,
+              label:cleanText(posts[0]?.title||'Session').slice(0,80),
+              timestamp:Date.now(),
+              results:results.map(r=>({title:r.title,svg:r.svg})),
+            }));
+            console.log(`Image ${i+1}/${posts.length} written`);
           }
-
-          // Write list of generated files for the upload step
-          fs.writeFileSync('/tmp/video_files.json', JSON.stringify(
-            posts.map((p,i) => ({
-              title: (p.title||'').replace(/\*\*/g,'').trim(),
-              file:  videoFiles[i],
-            }))
-          ));
-          console.log(`All ${videoFiles.length} videos encoded`);
+          console.log('Done: '+results.length+' image(s)');
           JSEOF
 
-          echo "VIDEO_READY=true" >> $GITHUB_ENV
-
-      - name: Upload videos to GitHub Release
+      - name: Run generator
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          TAG:      video-${{ steps.p.outputs.jobId }}
-          REPO:     ${{ github.repository }}
-          JOB_ID:   ${{ steps.p.outputs.jobId }}
-        run: |
-          JOB_ID="${{ steps.p.outputs.jobId }}"
-          REPO="${{ github.repository }}"
-          TAG="video-${JOB_ID}"
-          gh release create "$TAG" \
-            --repo "$REPO" \
-            --title "Video $JOB_ID" \
-            --notes "Auto-generated by LUMA" \
-            --latest=false 2>/dev/null || true
-          # Upload each video file
-          node --input-type=module << 'UPLOADEOF'
-          import { execSync } from 'child_process';
-          import fs from 'fs';
-          const tag   = process.env.TAG;
-          const repo  = process.env.REPO;
-          const jobId = process.env.JOB_ID;
-          const items = JSON.parse(fs.readFileSync('/tmp/video_files.json','utf8'));
-          const urls  = [];
-          for(let i=0; i<items.length; i++){
-            const fname = `${tag}-${i+1}.mp4`;
-            execSync(`gh release upload "${tag}" "${items[i].file}#${fname}" --repo "${repo}" --clobber`);
-            urls.push({
-              title:    items[i].title,
-              videoUrl: `https://github.com/${repo}/releases/download/${tag}/${fname}`,
-            });
-            console.log(`Uploaded ${fname}`);
-          }
-          fs.writeFileSync('/tmp/video_urls.json', JSON.stringify(urls));
-          UPLOADEOF
+          JOB_ID:     ${{ steps.p.outputs.jobId }}
+          DEVICE_ID:  ${{ steps.p.outputs.deviceId }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+        run: node /tmp/gen.mjs
 
-      - name: Write status JSON
-        env:
-          JOB_ID:    ${{ steps.p.outputs.jobId }}
-          DEVICE_ID: ${{ steps.p.outputs.deviceId }}
-        run: |
-          LABEL=$(head -c 80 /tmp/overlay_text.txt)
-          node --input-type=module << 'STATUSEOF'
-          import fs from 'fs';
-          const jid     = process.env.JOB_ID;
-          const did     = process.env.DEVICE_ID;
-          const lbl     = process.env.LABEL || 'Video';
-          const results = JSON.parse(fs.readFileSync('/tmp/video_urls.json','utf8'));
-          fs.mkdirSync('api/status', { recursive: true });
-          fs.writeFileSync('api/status/' + jid + '.json', JSON.stringify({
-            jobId:jid, deviceId:did, status:'done', template:'vidgen',
-            total:results.length, done:results.length,
-            label:lbl, timestamp:Date.now(),
-            results,
-          }));
-          console.log('Status written:', results.length, 'video(s) for', jid);
-          STATUSEOF
-          LABEL="$LABEL"
-
-      # Commit status with retry push
-      - name: Commit status
+      # Each job only touches its own file — pull+rebase merges cleanly every time
+      - name: Commit and push result
         run: |
           JOB_ID="${{ steps.p.outputs.jobId }}"
           for i in $(seq 1 8); do
             git add api/status/${JOB_ID}.json
             git diff --staged --quiet && echo "Nothing to commit" && break
-            git commit -m "video: ${JOB_ID}" || true
+            git commit -m "job: ${JOB_ID}" || true
             git pull --rebase origin main && git push && echo "Push ok" && break
             echo "Retry $i..." && sleep $((i * 3))
             git rebase --abort 2>/dev/null || true
           done
 
-      # Always write error if anything failed
-      - name: Write error status on failure
+      # On any failure — write error file and push it
+      - name: Write error on failure
         if: failure()
         env:
           JOB_ID: ${{ steps.p.outputs.jobId }}
@@ -328,17 +548,18 @@ jobs:
           JOB_ID="${{ steps.p.outputs.jobId }}"
           mkdir -p api/status
           node -e "
-            const fs=require('fs'),j=process.env.JOB_ID;
-            fs.writeFileSync('api/status/'+j+'.json', JSON.stringify({
-              status:'error', jobId:j,
-              error:'Video render failed. Check Actions logs.',
-              results:[], done:0, total:0, timestamp:Date.now()
+            const fs=require('fs'),j='${JOB_ID}';
+            fs.writeFileSync('api/status/'+j+'.json',JSON.stringify({
+              status:'error',jobId:j,
+              error:'Generation failed — check Actions logs.',
+              results:[],done:0,total:0,timestamp:Date.now()
             }));
+            console.log('Error status written for',j);
           "
           for i in $(seq 1 8); do
             git add api/status/${JOB_ID}.json
             git diff --staged --quiet && break
-            git commit -m "err: video ${JOB_ID}" || true
+            git commit -m "err: ${JOB_ID}" || true
             git pull --rebase origin main && git push && echo "Error push ok" && break
             echo "Error retry $i..." && sleep $((i * 3))
             git rebase --abort 2>/dev/null || true
