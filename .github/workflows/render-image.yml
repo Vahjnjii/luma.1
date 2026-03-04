@@ -23,7 +23,6 @@ jobs:
         with:
           node-version: '20'
 
-      # ── Safe parse: env var avoids shell injection from comment body ──
       - name: Parse payload
         id: p
         env:
@@ -41,7 +40,7 @@ jobs:
           console.log('Parsed jobId:', d.jobId, '| text chars:', (d.text||'').length);
           EOF
 
-      # ── Write "processing" immediately so UI shows progress spinner ──
+      # ── Safe git push with retry — handles parallel job conflicts ──
       - name: Write processing status
         run: |
           JOB_ID="${{ steps.p.outputs.jobId }}"
@@ -51,8 +50,20 @@ jobs:
             "$JOB_ID" "$DEVICE" "$(date +%s)000" > "api/status/${JOB_ID}.json"
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
-          git add api/status/
-          git diff --staged --quiet || (git commit -m "start: ${JOB_ID} [skip ci]" && git push)
+          # Retry loop — handles git push conflicts from parallel jobs
+          for i in 1 2 3 4 5; do
+            git add api/status/
+            if git diff --staged --quiet; then
+              echo "Nothing to commit"; break
+            fi
+            git commit -m "start: ${JOB_ID}" && \
+              git push && echo "Push ok" && break || \
+              echo "Push failed (attempt $i), pulling and retrying..." && \
+              git reset --soft HEAD~1 && \
+              git fetch origin main && \
+              git rebase origin/main && \
+              sleep $((i * 2))
+          done
 
       - name: Write generator script
         run: |
@@ -67,7 +78,6 @@ jobs:
           if (!jobId || !text) { console.error('Missing jobId or text'); process.exit(1); }
           if (!worker)         { console.error('Missing WORKER_URL secret'); process.exit(1); }
 
-          // ── Fetch posts from Worker (pure JS split — no AI timeout) ──
           let posts = [];
           try {
             const res  = await fetch(worker + '/ai', {
@@ -85,10 +95,8 @@ jobs:
           }
           if (!posts.length) { console.error('No posts from Worker'); process.exit(1); }
 
-          // ── Helpers ──────────────────────────────────────────────────────
           const cleanText = t => (t||'').replace(/\*\*/g,'').trim();
 
-          // Strip leading post numbers: "1." "1)" "(1)" "Post 1:" "第一：" etc.
           function stripPostNumber(title) {
             return (title||'')
               .replace(/^\s*(?:post\s*)?\d+\s*[.:)\-]\s*/i, '')
@@ -99,7 +107,6 @@ jobs:
               .trim();
           }
 
-          // Decode HTML entities (e.g. &#128512; → 😀) the AI sometimes outputs
           function decodeEntities(str) {
             if (!str) return str;
             return str
@@ -107,39 +114,25 @@ jobs:
               .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h,16)); } catch { return ''; } });
           }
 
-          // ── Normalise posts ──────────────────────────────────────────────
           posts = posts.map(p => ({
             title:   decodeEntities(stripPostNumber(p.title   || '')),
             content: (p.content || []).map(l => decodeEntities(l || '')),
           }));
 
-          // ── Bold: zodiac / planet / key words ────────────────────────────
           const ZODIAC_WORDS = [
-            // English
             'Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces',
-            // Chinese (Simplified + Traditional)
             '白羊座','金牛座','双子座','巨蟹座','狮子座','处女座','天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座',
             '牡羊座','雙子座','獅子座','處女座','天蠍座','雙魚座',
-            // Japanese
             '牡牛座','蟹座','乙女座','蠍座','山羊座','魚座',
-            // Hindi/Marathi
             'मेष','वृषभ','मिथुन','कर्क','कर्कट','सिंह','कन्या','तुला','वृश्चिक','धनु','मकर','कुंभ','मीन',
-            // Tamil
             'மேஷம்','ரிஷபம்','மிதுனம்','கடகம்','சிம்மம்','கன்னி','துலாம்','விருச்சிகம்','தனுசு','மகரம்','கும்பம்','மீனம்',
-            // Malayalam
             'മേഷം','ഇടവം','മിഥുനം','കർക്കടകം','ചിങ്ങം','കന്നി','തുലാം','വൃശ്ചികം','ധനു','മകരം','കുംഭം','മീനം',
-            // Telugu
             'మేషం','వృషభం','మిథునం','కర్కాటకం','సింహం','కన్య','తుల','వృశ్చికం','ధనుస్సు','మకరం','కుంభం','మీనం',
-            // Kannada
             'ಮೇಷ','ವೃಷಭ','ಮಿಥುನ','ಕರ್ಕಾಟಕ','ಸಿಂಹ','ಕನ್ಯಾ','ತುಲಾ','ವೃಶ್ಚಿಕ','ಧನು','ಮಕರ','ಕುಂಭ','ಮೀನ',
-            // Bengali
             'মেষ','বৃষভ','মিথুন','কর্কট','সিংহ','কন্যা','তুলা','বৃশ্চিক','ধনু','মকর','কুম্ভ','মীন',
-            // German
             'Widder','Stier','Zwillinge','Krebs','Löwe','Jungfrau','Waage','Skorpion','Schütze','Steinbock','Wassermann','Fische',
-            // Spanish / French
             'Tauro','Géminis','Cáncer','Sagitario','Capricornio','Acuario','Piscis',
             'Bélier','Taureau','Gémeaux','Vierge','Balance','Scorpion','Sagittaire','Capricorne','Verseau','Poissons',
-            // Arabic
             'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء','الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
           ];
           const PLANET_WORDS = [
@@ -170,49 +163,36 @@ jobs:
             content: p.content.map(l => l ? applyBold(l) : l),
           }));
 
-          // ── Emoji ensure: every non-empty line gets exactly one emoji ────
-          // KEY FIX: check if ANY emoji exists ANYWHERE in the line.
-          // If yes → leave line untouched (no duplicate emoji).
-          // If no  → append one relevant emoji at the end.
           const HAS_EMOJI_ANYWHERE = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u;
           function topicEmoji(t) {
             const s = (t||'').toLowerCase();
-            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces|白羊|金牛|双子|巨蟹|狮子|处女|天秤|天蝎|射手|摩羯|水瓶|双鱼|मेष|वृषभ|मिथुन|कर्क|सिंह|zodiac|rashi|horoscope|rashifal/i.test(s)) return '🔮';
-            if (/lucky|luck|fortune|auspicious|शुभ|吉|भाग्य/i.test(s))  return '🍀';
-            if (/warning|caution|alert|danger|beware|सावधान|注意/i.test(s)) return '⚠️';
-            if (/love|heart|romance|प्रेम|愛|liebe|amour|relationship/i.test(s)) return '❤️';
-            if (/money|wealth|finance|earn|profit|धन|钱|geld|financial/i.test(s)) return '💰';
-            if (/health|fitness|body|स्वास्थ्य|健康|gesundheit/i.test(s)) return '💪';
-            if (/career|job|work|business|करियर|事業|karriere/i.test(s)) return '💼';
-            if (/study|learn|education|पढ़|学习|lernen|knowledge/i.test(s)) return '📚';
-            if (/travel|journey|trip|यात्रा|旅行|reise/i.test(s)) return '✈️';
-            if (/family|home|house|परिवार|家庭|familie/i.test(s)) return '🏠';
-            if (/sun|solar|surya|सूर्य|太阳|sonne/i.test(s)) return '☀️';
-            if (/moon|lunar|chandra|चंद्र|月亮|mond/i.test(s)) return '🌙';
-            if (/fire|energy|passion|जोश|火|feuer/i.test(s)) return '🔥';
-            if (/win|success|victory|विजय|成功|erfolg/i.test(s)) return '🏆';
-            if (/nature|flower|garden|प्रकृति|自然|natur/i.test(s)) return '🌸';
+            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces|zodiac|rashi|horoscope|rashifal/i.test(s)) return '🔮';
+            if (/lucky|luck|fortune|auspicious/i.test(s))  return '🍀';
+            if (/warning|caution|alert|danger/i.test(s)) return '⚠️';
+            if (/love|heart|romance|relationship/i.test(s)) return '❤️';
+            if (/money|wealth|finance|earn|profit/i.test(s)) return '💰';
+            if (/health|fitness|body/i.test(s)) return '💪';
+            if (/career|job|work|business/i.test(s)) return '💼';
+            if (/study|learn|education|knowledge/i.test(s)) return '📚';
+            if (/travel|journey|trip/i.test(s)) return '✈️';
+            if (/family|home|house/i.test(s)) return '🏠';
+            if (/sun|solar/i.test(s)) return '☀️';
+            if (/moon|lunar/i.test(s)) return '🌙';
+            if (/fire|energy|passion/i.test(s)) return '🔥';
+            if (/win|success|victory/i.test(s)) return '🏆';
             return '✨';
           }
           function ensureEmoji(line) {
             if (!line || !line.trim()) return line;
             const plain = cleanText(line);
-            // If line already has ANY emoji anywhere → don't add another
             if (HAS_EMOJI_ANYWHERE.test(plain)) return line;
-            // No emoji at all → append one relevant emoji at the end
             return line.trimEnd() + ' ' + topicEmoji(plain);
           }
           posts = posts.map(p => ({
-            title:   p.title,  // no emoji in title
+            title:   ensureEmoji(p.title),
             content: p.content.map(l => ensureEmoji(l)),
           }));
 
-          // ════════════════════════════════════════════════════════════════
-          // SVG RENDERER — based on reference implementation
-          // Uses system emoji font stack: no CDN, no PNG embeds, always works.
-          // Emoji are part of the text, rendered by 'Apple Color Emoji' etc.
-          // renderLine handles **bold** markers only — simple, clean, correct.
-          // ════════════════════════════════════════════════════════════════
           const EMOJI_FONT = `'Apple Color Emoji','Noto Color Emoji','Segoe UI Emoji','Segoe UI Symbol'`;
           const BASE_FONT  = `'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif,${EMOJI_FONT}`;
 
@@ -232,12 +212,9 @@ jobs:
             return segs.filter(s => s.t);
           }
 
-          // renderLine: bold-aware, emoji stays in text via font stack
-          // No CDN, no splitSegments, no complex emoji logic — clean and correct.
           function renderLine(px, y, fs, fw, fill, rawText) {
             const segs    = parseBold(rawText);
             const hasBold = segs.some(s => s.bold);
-
             if (!hasBold) {
               return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(cleanText(rawText))}</text>`;
             }
@@ -251,25 +228,17 @@ jobs:
 
           function isWide(ch) {
             const cp = ch.codePointAt(0);
-            return (
-              cp >= 0x1F000 ||
-              (cp >= 0x2600  && cp <= 0x27FF) ||
-              (cp >= 0x4E00  && cp <= 0x9FFF) ||
-              (cp >= 0x3400  && cp <= 0x4DBF) ||
-              (cp >= 0x20000 && cp <= 0x2FA1F)||
-              (cp >= 0x3040  && cp <= 0x30FF) ||
-              (cp >= 0xAC00  && cp <= 0xD7AF) ||
-              (cp >= 0xFF00  && cp <= 0xFFEF) ||
-              (cp >= 0x3000  && cp <= 0x303F) ||
-              (cp >= 0x3200  && cp <= 0x33FF)
-            );
+            return (cp >= 0x1F000 || (cp >= 0x2600 && cp <= 0x27FF) || (cp >= 0x4E00 && cp <= 0x9FFF) ||
+              (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x20000 && cp <= 0x2FA1F) ||
+              (cp >= 0x3040 && cp <= 0x30FF) || (cp >= 0xAC00 && cp <= 0xD7AF) ||
+              (cp >= 0xFF00 && cp <= 0xFFEF) || (cp >= 0x3000 && cp <= 0x303F) ||
+              (cp >= 0x3200 && cp <= 0x33FF));
           }
           function charVisLen(str) {
             let n = 0;
             for (const ch of [...(str||'')]) n += isWide(ch) ? 2 : 1;
             return n;
           }
-
           function wrapLatin(text, cpl) {
             const words = text.split(' '), lines = [];
             let cur = '', curLen = 0;
@@ -282,7 +251,6 @@ jobs:
             if (cur) lines.push(cur);
             return lines.length ? lines : [''];
           }
-
           function wrapCJK(text, cpl) {
             const lines = []; let curRaw = '', curLen = 0, inBold = false;
             const chars = [...text]; let i = 0;
@@ -299,7 +267,6 @@ jobs:
             if (cleanText(curRaw)) lines.push(curRaw);
             return lines.length ? lines : [''];
           }
-
           function smartWrap(text, cpl) {
             if (!text) return [''];
             const plain = cleanText(text);
@@ -309,109 +276,64 @@ jobs:
             return isCJK ? wrapCJK(text, cpl) : wrapLatin(text, cpl);
           }
 
-          // == Emoji-bullet helpers ==
-          // If the FIRST character of a line is an emoji, treat it as a bullet.
-          // Wrapped continuation lines indent to align text after the emoji.
-          const LEAD_EMOJI_RE = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u;
-
-          function splitLeadEmoji(raw) {
-            // Returns { bullet: '<emoji> ', rest: 'text...' } or { bullet: null, rest: raw }
-            const plain = cleanText(raw || '');
-            const m = LEAD_EMOJI_RE.exec(plain);
-            if (!m) return { bullet: null, rest: raw };
-            // bullet = emoji + space from original raw (preserve bold markers)
-            const bulletChar = m[0];
-            const rest = raw.slice(m[0].length).trimStart();
-            return { bullet: bulletChar, rest };
-          }
-
-          async function makeSVG(post, imgIndex) {
+          async function makeSVG(post) {
             const W = 1080, H = 1920, PX = 110, PY = 130;
             const CW = W - PX * 2, BOTTOM = H - PY;
-
             const rawTitle = (post.title  || '').trim();
             const content  = (post.content|| []);
             const visLen   = charVisLen(cleanText(rawTitle)) + charVisLen(content.map(l=>cleanText(l||'')).join(''));
-
             let ts, bs, tlh, blh, gap;
-            if      (visLen < 80)  { ts=96; bs=62; tlh=134; blh= 96; gap=76; }
-            else if (visLen < 150) { ts=86; bs=55; tlh=120; blh= 88; gap=68; }
-            else if (visLen < 260) { ts=74; bs=49; tlh=104; blh= 78; gap=58; }
-            else if (visLen < 420) { ts=65; bs=44; tlh= 92; blh= 70; gap=50; }
-            else if (visLen < 620) { ts=55; bs=40; tlh= 80; blh= 64; gap=44; }
-            else if (visLen < 900) { ts=48; bs=35; tlh= 70; blh= 56; gap=36; }
-            else                   { ts=41; bs=31; tlh= 60; blh= 50; gap=32; }
-
-            // emoji bullet indent = approx 1.4x body font size (wider for emoji)
-            const EMOJI_W = Math.round(bs * 1.45);
-
+            if      (visLen < 80)  { ts=96; bs=62; tlh=134; blh=90; gap=76; }
+            else if (visLen < 150) { ts=86; bs=55; tlh=120; blh=82; gap=68; }
+            else if (visLen < 260) { ts=74; bs=49; tlh=104; blh=72; gap=58; }
+            else if (visLen < 420) { ts=65; bs=44; tlh= 92; blh=64; gap=50; }
+            else if (visLen < 620) { ts=55; bs=40; tlh= 80; blh=58; gap=44; }
+            else if (visLen < 900) { ts=48; bs=35; tlh= 70; blh=50; gap=36; }
+            else                   { ts=41; bs=31; tlh= 60; blh=44; gap=32; }
             const tCPL = Math.floor(CW / (ts * 0.50));
-            const bCPL      = Math.floor(CW / (bs * 0.50));
-            const bCPL_cont = Math.floor((CW - EMOJI_W) / (bs * 0.50)); // continuation after bullet
-
+            const bCPL = Math.floor(CW / (bs * 0.50));
             const titleLines = smartWrap(rawTitle, tCPL);
             const bodyLines  = [];
             for (const line of content) {
-              if (!cleanText(line||'')) { bodyLines.push({ raw:'', gap:true, indent:0 }); continue; }
-              const { bullet, rest } = splitLeadEmoji(line);
-              if (bullet) {
-                // First wrapped line: emoji + rest (no indent on first)
-                const wraps = smartWrap(rest, bCPL_cont);
-                bodyLines.push({ raw: bullet + (wraps[0]||''), gap:false, indent:0, isBulletFirst:true, bulletW: EMOJI_W });
-                for (let wi=1; wi<wraps.length; wi++) {
-                  bodyLines.push({ raw: wraps[wi], gap:false, indent: EMOJI_W });
-                }
-              } else {
-                for (const w of smartWrap(line, bCPL)) bodyLines.push({ raw:w, gap:false, indent:0 });
-              }
+              if (!cleanText(line||'')) { bodyLines.push({ raw:'', gap:true }); }
+              else { for (const w of smartWrap(line, bCPL)) bodyLines.push({ raw:w, gap:false }); }
             }
-
             const titleH = titleLines.length * tlh;
             const bodyH  = bodyLines.reduce((s,l) => s + (l.gap ? blh*0.5 : blh), 0);
             const totalH = titleH + (bodyLines.length ? gap + bodyH : 0);
             let y = totalH > (H - PY*2)
               ? PY + ts
               : Math.max(PY + ts, Math.round((H - totalH) / 2) + ts);
-
             const els = [];
-
             for (const line of titleLines) {
               if (y > BOTTOM + ts) break;
               els.push(renderLine(PX, y, ts, 800, '#FFFFFF', line));
               y += tlh;
             }
-
             if (bodyLines.length) {
               const ay = y + Math.round(gap * 0.28);
               if (ay < BOTTOM)
                 els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);
               y += gap;
             }
-
             for (const line of bodyLines) {
               if (!line.gap && y > BOTTOM + bs) break;
-              if (!line.gap) els.push(renderLine(PX + line.indent, y, bs, 400, 'rgba(255,255,255,0.85)', line.raw));
+              if (!line.gap) els.push(renderLine(PX, y, bs, 400, 'rgba(255,255,255,0.85)', line.raw));
               y += line.gap ? Math.round(blh * 0.5) : blh;
             }
-
-            // == Image number badge (top-right inside template) ==
-            const numLabel = String(imgIndex + 1);
-            const numBadge = `<text x="${W - PX}" y="${PY - 20}" font-family="${BASE_FONT}" font-size="36" font-weight="700" fill="rgba(255,255,255,0.35)" text-anchor="end" xml:space="preserve">${numLabel}</text>`;
-
             const svgParts = [
               '<?xml version="1.0" encoding="UTF-8"?>',
               `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`,
               '<defs>',
               `  <linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">`,
-              '  <stop offset="0%"   stop-color="#000000"/>',
-              '  <stop offset="55%"  stop-color="#000000"/>',
-              '  <stop offset="100%" stop-color="#000000"/>',
+              '  <stop offset="0%"   stop-color="#06020f"/>',
+              '  <stop offset="55%"  stop-color="#080412"/>',
+              '  <stop offset="100%" stop-color="#00091a"/>',
               '  </linearGradient>',
               `  <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>`,
               '</defs>',
               `<rect width="${W}" height="${H}" fill="url(#bg)"/>`,
               '<g clip-path="url(#clip)">',
-              numBadge,
               ...els,
               '</g>',
               '</svg>',
@@ -419,13 +341,12 @@ jobs:
             return svgParts.join('\n');
           }
 
-          // ── Write results incrementally ───────────────────────────────────
           const dir = 'api/status';
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
           const results = [];
           for (let i = 0; i < posts.length; i++) {
-            const svg = await makeSVG(posts[i], i);
+            const svg = await makeSVG(posts[i]);
             results.push({ title: cleanText(posts[i].title), svg });
             const isLast = i === posts.length - 1;
             fs.writeFileSync(`${dir}/${jobId}.json`, JSON.stringify({
@@ -450,13 +371,26 @@ jobs:
           WORKER_URL: ${{ secrets.WORKER_URL }}
         run: node /tmp/gen.mjs
 
+      # ── Safe git push with retry — handles parallel job conflicts ──
       - name: Commit status
         run: |
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
-          git add api/status/
-          git diff --staged --quiet || (git commit -m "job: ${{ steps.p.outputs.jobId }} [skip ci]" && git push)
+          for i in 1 2 3 4 5; do
+            git add api/status/
+            if git diff --staged --quiet; then
+              echo "Nothing to commit"; break
+            fi
+            git commit -m "job: ${{ steps.p.outputs.jobId }}" && \
+              git push && echo "Push ok" && break || \
+              echo "Push conflict (attempt $i), rebasing..." && \
+              git reset --soft HEAD~1 && \
+              git fetch origin main && \
+              git rebase origin/main && \
+              sleep $((i * 2))
+          done
 
+      # ── Always write error status if anything above failed ──
       - name: Write error on failure
         if: failure()
         env:
@@ -473,5 +407,13 @@ jobs:
           "
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
-          git add api/status/
-          git diff --staged --quiet || (git commit -m "err: ${JOB_ID} [skip ci]" && git push)
+          for i in 1 2 3 4 5; do
+            git add api/status/
+            if git diff --staged --quiet; then break; fi
+            git commit -m "err: ${{ steps.p.outputs.jobId }}" && \
+              git push && break || \
+              git reset --soft HEAD~1 && \
+              git fetch origin main && \
+              git rebase origin/main && \
+              sleep $((i * 2))
+          done
