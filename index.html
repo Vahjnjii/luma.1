@@ -403,6 +403,10 @@ body::before{
 }
 
 /* Duration row */
+.dur-btns{display:flex;gap:5px;flex-wrap:wrap;}
+.dur-btn{background:rgba(255,255,255,.05);border:1px solid var(--bd);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--tx2);cursor:pointer;transition:all .18s;font-family:'DM Sans',sans-serif;}
+.dur-btn:hover{border-color:var(--acc);color:var(--acc2);}
+.dur-btn.active{background:rgba(124,109,255,.18);border-color:var(--acc);color:#fff;}
 .dur-row{
   display:flex;align-items:center;gap:10px;
   background:rgba(255,255,255,.03);border:1px solid var(--bd);
@@ -735,9 +739,16 @@ body::before{
   <div id="dur-row" class="dur-row" style="display:none">
     <i class="fas fa-clock" style="color:var(--tx3);font-size:12px"></i>
     <span class="dur-label">Duration</span>
-    <input id="dur-input" class="dur-slider" type="range" min="10" max="120" value="30" step="5"
-      oninput="$('dur-val').textContent=this.value+'s'">
-    <span id="dur-val" class="dur-val">30s</span>
+    <div class="dur-btns" id="dur-btns">
+      <button class="dur-btn" onclick="setDur(5)">5s</button>
+      <button class="dur-btn" onclick="setDur(6)">6s</button>
+      <button class="dur-btn active" onclick="setDur(10)">10s</button>
+      <button class="dur-btn" onclick="setDur(11)">11s</button>
+      <button class="dur-btn" onclick="setDur(12)">12s</button>
+      <button class="dur-btn" onclick="setDur(15)">15s</button>
+      <button class="dur-btn" onclick="setDur(20)">20s</button>
+    </div>
+    <input id="dur-input" type="hidden" value="10">
   </div>
 
   <div class="ch-input-bar">
@@ -1080,7 +1091,7 @@ function updateSession(jid,upd){ const s=getSession(jid); if(s){Object.assign(s,
 function removeSession(jid){ const s=getSession(jid); if(s?.pollInterval)clearInterval(s.pollInterval); _sessions=_sessions.filter(x=>x.jobId!==jid); saveSessions(); }
 
 // History (richer — includes prompt + results)
-function histKey(){ return uKey('hist'); }
+function histKey(){ return uKey('hist_'+(_tpl||'imggen')); }
 function getHist()     { try{return JSON.parse(localStorage.getItem(histKey())||'[]');}catch{return[];} }
 function setHist(h)    { try{localStorage.setItem(histKey(),JSON.stringify(h.slice(0,50)));}catch{} }
 function addHist(e)    { const h=getHist(); h.unshift(e); setHist(h); }
@@ -1239,6 +1250,12 @@ function show(id) {
   if (id==='chat') scrollDown();
 }
 
+let _vidDuration = 10;
+function setDur(s){
+  _vidDuration = s;
+  $('dur-input').value = s;
+  document.querySelectorAll('.dur-btn').forEach(b => b.classList.toggle('active', b.textContent === s+'s'));
+}
 function openTemplate(id) {
   _tpl = id;
   const vid = id === 'vidgen';
@@ -1305,7 +1322,7 @@ async function sendMsg() {
     jobId, prompt:text, label:text.slice(0,80),
     tpl:_tpl, ts:Date.now(), status:'queued',
     done:0, total:0, seenCount:0,
-    vidDuration:parseInt($('dur-input')?.value||'30',10),
+    vidDuration:_vidDuration||10,
     issueLane: assignLane(),  // pre-assign lane at creation so parallel jobs never collide
   };
   addSession(sess);
@@ -1620,7 +1637,7 @@ function trigDl(blob,name){const url=URL.createObjectURL(blob),a=Object.assign(d
 /* ═══════════════════════════════════════════════════════════
    HISTORY PANEL
    ═══════════════════════════════════════════════════════════ */
-function openHistory() { renderHist(getHist()); $('hist-panel').classList.add('open'); }
+function openHistory() { renderHist(getHist().filter(e=>(e.tpl||'imggen')===(_tpl||'imggen'))); $('hist-panel').classList.add('open'); }
 function closeHistory(){ $('hist-panel').classList.remove('open'); }
 function renderHist(h) {
   const list=$('hist-list');
