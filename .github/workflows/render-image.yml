@@ -167,10 +167,12 @@ jobs:
           }
 
           posts = posts.map(p => ({
-            title:   applyBold(p.title),
+            // NO applyBold on title — title is plain text only, no emojis added
+            title:   p.title,
             content: p.content.map(l => l ? applyBold(l) : l),
           }));
 
+          // ── Emoji handling — content lines only, NOT title ──
           const HAS_EMOJI_ANYWHERE = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u;
           function topicEmoji(t) {
             const s = (t||'').toLowerCase();
@@ -190,15 +192,15 @@ jobs:
             if (/win|success|victory/i.test(s)) return '🏆';
             return '✨';
           }
-          function ensureEmoji(line) {
+          function ensureEmojiContent(line) {
             if (!line || !line.trim()) return line;
             const plain = cleanText(line);
             if (HAS_EMOJI_ANYWHERE.test(plain)) return line;
-            return line.trimEnd() + ' ' + topicEmoji(plain);
+            return topicEmoji(plain) + ' ' + line.trimStart();
           }
           posts = posts.map(p => ({
-            title:   ensureEmoji(p.title),
-            content: p.content.map(l => ensureEmoji(l)),
+            title:   p.title,  // title: no emoji added
+            content: p.content.map(l => ensureEmojiContent(l)),
           }));
 
           const EMOJI_FONT = `'Apple Color Emoji','Noto Color Emoji','Segoe UI Emoji','Segoe UI Symbol'`;
@@ -218,6 +220,8 @@ jobs:
             if (last < text.length) segs.push({ t: text.slice(last), bold: false });
             return segs.filter(s => s.t);
           }
+
+          // ── renderLine: plain line ──
           function renderLine(px, y, fs, fw, fill, rawText) {
             const segs = parseBold(rawText);
             const hasBold = segs.some(s => s.bold);
@@ -228,6 +232,42 @@ jobs:
             ).join('');
             return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${spans}</text>`;
           }
+
+          // ── renderBulletLine: emoji bullet + indented wrapped text ──
+          // The first emoji acts as a bullet point. Continuation lines indent to align after it.
+          function renderBulletLine(px, y, fs, fw, fill, rawText, blh, bCPL, W, PX) {
+            const plain = cleanText(rawText);
+            // Detect leading emoji
+            const emojiRE = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F\u20E3?|\p{Emoji}\uFE0F)/u;
+            const em = plain.match(emojiRE);
+            if (!em) return [renderLine(px, y, fs, fw, fill, rawText), y + blh];
+
+            const emojiChar = em[0];
+            const emojiW    = Math.round(fs * 1.2);   // emoji column width
+            const indent    = px + emojiW + Math.round(fs * 0.35); // text starts here
+            const textCW    = W - indent - PX;
+            const textCPL   = Math.floor(textCW / (fs * 0.50));
+
+            // Strip the leading emoji from the rest of the text
+            const rest = rawText.slice(rawText.indexOf(emojiChar) + emojiChar.length).trimStart();
+
+            // Wrap the rest into lines that fit within the indented column
+            const wrapped = wrapLatin(rest, textCPL);
+
+            const out = [];
+            // Emoji on first line
+            out.push(`<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(emojiChar)}</text>`);
+            // First text line beside the emoji
+            if (wrapped[0]) out.push(renderLine(indent, y, fs, fw, fill, wrapped[0]));
+            // Continuation lines indented
+            let cy = y + blh;
+            for (let i = 1; i < wrapped.length; i++) {
+              out.push(renderLine(indent, cy, fs, fw, fill, wrapped[i]));
+              cy += blh;
+            }
+            return [out.join('\n'), cy];
+          }
+
           function isWide(ch) {
             const cp = ch.codePointAt(0);
             return (cp>=0x1F000||(cp>=0x2600&&cp<=0x27FF)||(cp>=0x4E00&&cp<=0x9FFF)||
@@ -266,45 +306,68 @@ jobs:
             const spaceCount=(plain.match(/ /g)||[]).length;
             return(wideCount>plain.length*0.3||(wideCount>2&&spaceCount<2))?wrapCJK(text,cpl):wrapLatin(text,cpl);
           }
-          async function makeSVG(post) {
+
+          async function makeSVG(post, imgIndex) {
             const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOTTOM=H-PY;
             const rawTitle=(post.title||'').trim(),content=(post.content||[]);
             const visLen=charVisLen(cleanText(rawTitle))+charVisLen(content.map(l=>cleanText(l||'')).join(''));
+
             let ts,bs,tlh,blh,gap;
-            if(visLen<80){ts=96;bs=62;tlh=134;blh=90;gap=76;}
-            else if(visLen<150){ts=86;bs=55;tlh=120;blh=82;gap=68;}
-            else if(visLen<260){ts=74;bs=49;tlh=104;blh=72;gap=58;}
-            else if(visLen<420){ts=65;bs=44;tlh=92;blh=64;gap=50;}
-            else if(visLen<620){ts=55;bs=40;tlh=80;blh=58;gap=44;}
-            else if(visLen<900){ts=48;bs=35;tlh=70;blh=50;gap=36;}
-            else{ts=41;bs=31;tlh=60;blh=44;gap=32;}
+            if(visLen<80){ts=96;bs=62;tlh=134;blh=96;gap=76;}
+            else if(visLen<150){ts=86;bs=55;tlh=120;blh=86;gap=68;}
+            else if(visLen<260){ts=74;bs=49;tlh=104;blh=76;gap=58;}
+            else if(visLen<420){ts=65;bs=44;tlh=92;blh=68;gap=50;}
+            else if(visLen<620){ts=55;bs=40;tlh=80;blh=62;gap=44;}
+            else if(visLen<900){ts=48;bs=35;tlh=70;blh=54;gap=36;}
+            else{ts=41;bs=31;tlh=60;blh=48;gap=32;}
+
+            // line height = font size * 1.55 for a little extra breathing room (not a full line gap)
+            blh = Math.round(bs * 1.55);
+            tlh = Math.round(ts * 1.40);
+
             const tCPL=Math.floor(CW/(ts*0.50)),bCPL=Math.floor(CW/(bs*0.50));
-            const titleLines=smartWrap(rawTitle,tCPL),bodyLines=[];
-            for(const line of content){
-              if(!cleanText(line||'')){bodyLines.push({raw:'',gap:true});}
-              else{for(const w of smartWrap(line,bCPL))bodyLines.push({raw:w,gap:false});}
-            }
-            const titleH=titleLines.length*tlh;
-            const bodyH=bodyLines.reduce((s,l)=>s+(l.gap?blh*0.5:blh),0);
-            const totalH=titleH+(bodyLines.length?gap+bodyH:0);
-            let y=totalH>(H-PY*2)?PY+ts:Math.max(PY+ts,Math.round((H-totalH)/2)+ts);
+            const titleLines=smartWrap(rawTitle,tCPL);
+
+            const totalH_estimate = titleLines.length*tlh + gap + content.filter(l=>cleanText(l||'')).length * blh * 1.3;
+            let y = totalH_estimate>(H-PY*2) ? PY+ts : Math.max(PY+ts, Math.round((H-totalH_estimate)/2)+ts);
+
             const els=[];
-            for(const line of titleLines){if(y>BOTTOM+ts)break;els.push(renderLine(PX,y,ts,800,'#FFFFFF',line));y+=tlh;}
-            if(bodyLines.length){const ay=y+Math.round(gap*0.28);if(ay<BOTTOM)els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);y+=gap;}
-            for(const line of bodyLines){if(!line.gap&&y>BOTTOM+bs)break;if(!line.gap)els.push(renderLine(PX,y,bs,400,'rgba(255,255,255,0.85)',line.raw));y+=line.gap?Math.round(blh*0.5):blh;}
+
+            // ── Title — plain text, no emoji, bold white ──
+            for(const line of titleLines){
+              if(y>BOTTOM+ts)break;
+              els.push(renderLine(PX,y,ts,800,'#FFFFFF',line));
+              y+=tlh;
+            }
+
+            // ── Divider bar after title ──
+            if(content.filter(l=>cleanText(l||'')).length){
+              const ay=y+Math.round(gap*0.28);
+              if(ay<BOTTOM) els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);
+              y+=gap;
+            }
+
+            // ── Body lines — emoji bullet layout ──
+            for(const line of content){
+              if(!cleanText(line||'')){
+                // Empty line = small half-gap spacer
+                y += Math.round(blh * 0.35);
+                continue;
+              }
+              if(y>BOTTOM+bs)break;
+              const [svgEl, newY] = renderBulletLine(PX, y, bs, 400, 'rgba(255,255,255,0.88)', line, blh, bCPL, W, PX);
+              els.push(svgEl);
+              y = newY;
+            }
+
             return[
               '<?xml version="1.0" encoding="UTF-8"?>',
               `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`,
               '<defs>',
-              `<linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">`,
-              '<stop offset="0%" stop-color="#06020f"/>',
-              '<stop offset="55%" stop-color="#080412"/>',
-              '<stop offset="100%" stop-color="#00091a"/>',
-              '</linearGradient>',
-              `<clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>`,
+              // Pure black background
               '</defs>',
-              `<rect width="${W}" height="${H}" fill="url(#bg)"/>`,
-              '<g clip-path="url(#clip)">',
+              `<rect width="${W}" height="${H}" fill="#000000"/>`,
+              '<g>',
               ...els,
               '</g>','</svg>',
             ].join('\n');
@@ -314,7 +377,7 @@ jobs:
           fs.mkdirSync(dir,{recursive:true});
           const results=[];
           for(let i=0;i<posts.length;i++){
-            const svg=await makeSVG(posts[i]);
+            const svg=await makeSVG(posts[i], i+1);
             results.push({title:cleanText(posts[i].title),svg});
             const isLast=i===posts.length-1;
             fs.writeFileSync(`${dir}/${jobId}.json`,JSON.stringify({
@@ -330,7 +393,7 @@ jobs:
             console.log(`Image ${i+1}/${posts.length} written`);
           }
           console.log('Done: '+results.length+' image(s)');
-          JSEOF
+                    JSEOF
 
       - name: Run generator
         env:
