@@ -85,16 +85,88 @@ jobs:
           }
           if (!posts.length) { console.error('No posts returned from Worker'); process.exit(1); }
           
+          // ── Decode any HTML entities the AI may have output (e.g. &#128512; → 😀) ──
+          // LLMs sometimes escape emoji as decimal/hex HTML entities in their JSON output.
+          // These survive JSON.parse as literal strings and show as raw code in SVG text.
+          function decodeEntities(str) {
+            if (!str) return str;
+            return str
+              .replace(/&#(\d+);/g,           (_, n) => { try { return String.fromCodePoint(parseInt(n, 10)); } catch { return ''; } })
+              .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return ''; } });
+          }
+          posts = posts.map(p => ({
+            ...p,
+            title:   decodeEntities(p.title   || ''),
+            content: (p.content || []).map(l => decodeEntities(l || ''))
+          }));
+          
           // ══════════════════════════════════════════════════════════════
-          // BOLD — Worker AI should already return **markers**.
-          // We add only two universal fallback rules:
-          //   1. Title words that reappear in content → bold
-          //   2. ALL-CAPS Latin words (3+ chars) → bold
-          // Zodiac / astrological names in ANY language are handled by
-          // the Worker AI itself since it understands the input language.
+          // BOLD — Multi-layer bolding:
+          //   1. Zodiac/planet names in ANY language → always bold
+          //   2. Title words that reappear in content → bold
+          //   3. ALL-CAPS Latin words (3+ chars) → bold
+          //   4. Numbers with units (%, ₹, $, ordinals) → bold
+          //   5. Key timing & emphasis words → bold
           // ══════════════════════════════════════════════════════════════
           const clean = t => (t||'').replace(/\*\*/g,'').trim();
           const strip = t => (t||'').replace(/^\s*(?:post\s*)?\d+\s*[.:\)]\s*/i,'').replace(/^\s*\(\d+\)\s*/,'').trim();
+          
+          // ── Zodiac signs in 12+ languages ──
+          const ZODIAC_WORDS = [
+            // English
+            'Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces',
+            // Hindi / Marathi (Devanagari)
+            'मेष','वृषभ','मिथुन','कर्क','कर्कट','सिंह','कन्या','तुला','वृश्चिक','धनु','मकर','कुंभ','मीन',
+            // Bengali
+            'মেষ','বৃষভ','মিথুন','কর্কট','সিংহ','কন্যা','তুলা','বৃশ্চিক','ধনু','মকর','কুম্ভ','মীন',
+            // Tamil
+            'மேஷம்','ரிஷபம்','மிதுனம்','கடகம்','சிம்மம்','கன்னி','துலாம்','விருச்சிகம்','தனுசு','மகரம்','கும்பம்','மீனம்',
+            // Malayalam
+            'മേഷം','ഇടവം','മിഥുനം','കർക്കടകം','ചിങ്ങം','കന്നി','തുലാം','വൃശ്ചികം','ധനു','മകരം','കുംഭം','മീനം',
+            // Telugu
+            'మేషం','వృషభం','మిథునం','కర్కాటకం','సింహం','కన్య','తుల','వృశ్చికం','ధనుస్సు','మకరం','కుంభం','మీనం',
+            // Kannada
+            'ಮೇಷ','ವೃಷಭ','ಮಿಥುನ','ಕರ್ಕಾಟಕ','ಸಿಂಹ','ಕನ್ಯಾ','ತುಲಾ','ವೃಶ್ಚಿಕ','ಧನು','ಮಕರ','ಕುಂಭ','ಮೀನ',
+            // Gujarati
+            'મેષ','વૃષભ','મિથુન','કર્ક','સિંહ','કન્યા','તુલા','વૃશ્ચિક','ધન','મકર','કુંભ','મીન',
+            // Punjabi (Gurmukhi)
+            'ਮੇਖ','ਬਿਰਖ','ਮਿਥੁਨ','ਕਰਕ','ਸਿੰਘ','ਕੰਨਿਆ','ਤੁਲਾ','ਵਿਛੂ','ਧਨੁ','ਮਕਰ','ਕੁੰਭ','ਮੀਨ',
+            // Odia
+            'ମେଷ','ବୃଷ','ମିଥୁନ','କର୍କଟ','ସିଂହ','କନ୍ୟା','ତୁଳା','ବୃଶ୍ଚିକ','ଧନୁ','ମକର','କୁମ୍ଭ','ମୀନ',
+            // Arabic
+            'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء','الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
+            // Urdu
+            'حمل','ثور','جوزا','سرطان','اسد','سنبلہ','میزان','عقرب','قوس','جدی','دلو','حوت',
+          ];
+          
+          // ── Planet names in multiple languages ──
+          const PLANET_WORDS = [
+            // English
+            'Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu','Uranus','Neptune','Pluto',
+            // Hindi
+            'सूर्य','चंद्र','मंगल','बुध','गुरु','शुक्र','शनि','राहु','केतु',
+            // Tamil
+            'சூரியன்','சந்திரன்','செவ்வாய்','புதன்','குரு','சுக்கிரன்','சனி','ராகு','கேது',
+            // Malayalam
+            'സൂര്യൻ','ചന്ദ്രൻ','ചൊവ്വ','ബുധൻ','ഗുരു','ശുക്രൻ','ശനി','രാഹു','കേതു',
+            // Telugu
+            'సూర్యుడు','చంద్రుడు','కుజుడు','బుధుడు','గురుడు','శుక్రుడు','శని','రాహువు','కేతువు',
+            // Kannada
+            'ಸೂರ್ಯ','ಚಂದ್ರ','ಮಂಗಳ','ಬುಧ','ಗುರು','ಶುಕ್ರ','ಶನಿ','ರಾಹು','ಕೇತು',
+            // Bengali
+            'সূর্য','চন্দ্র','মঙ্গল','বুধ','বৃহস্পতি','শুক্র','শনি','রাহু','কেতু',
+            // Arabic
+            'الشمس','القمر','المريخ','عطارد','المشتري','الزهرة','زحل',
+          ];
+          
+          // Build a single regex from all zodiac + planet words (longest first to avoid partial matches)
+          const _allSpecial = [...ZODIAC_WORDS, ...PLANET_WORDS]
+            .sort((a, b) => b.length - a.length)
+            .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+          const SPECIAL_RE = new RegExp('(' + _allSpecial.join('|') + ')', 'gu');
+          
+          // Key timing / emphasis words that should be bolded
+          const TIMING_RE = /(?<!\*)\b(Today|Tomorrow|Yesterday|Tonight|Now|Weekly|Daily|Monthly|Yearly|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Note|Tip|Key|Best|Worst|Special|Rare|Excellent|Good|Bad|Critical)\b(?!\*)/gi;
           
           function applyBold(title, content) {
             // Collect significant words from title (3+ chars, any script)
@@ -107,11 +179,17 @@ jobs:
           
             function boldLine(t) {
               if (!t) return t;
-              // 1. Title words in content → bold
+              // 1. Zodiac & planet names in any language → bold (top priority)
+              t = t.replace(SPECIAL_RE, '**$1**');
+              // 2. Title words in content → bold
               if (titleRe) t = t.replace(titleRe, '**$1**');
-              // 2. ALL-CAPS Latin words (3+ chars, not already bolded)
+              // 3. ALL-CAPS Latin words (3+ chars, not already bolded)
               t = t.replace(/(?<!\*)\b([A-Z]{3,})\b(?!\*)/g, '**$1**');
-              // 3. Clean double-bold artifacts
+              // 4. Numbers with units: %, ₹, $, €, £ or ordinals (1st, 2nd, 3rd, Nth)
+              t = t.replace(/(?<!\*)\b(\d+(?:\.\d+)?\s*[%₹$€£]|[₹$€£]\s*\d+(?:\.\d+)?|\d+(?:st|nd|rd|th))\b(?!\*)/g, '**$1**');
+              // 5. Key timing & emphasis words
+              t = t.replace(TIMING_RE, '**$1**');
+              // 6. Clean double-bold artifacts
               t = t.replace(/\*\*\*\*/g,'**').replace(/\*\*(\s+)\*\*/g,'$1');
               return t;
             }
@@ -146,6 +224,8 @@ jobs:
           //   • Keycap sequences: digit/# /* + VS16 + U+20E3
           //   • Any emoji + VS16 (forces emoji presentation)
           //   • Emoji that already default to emoji presentation
+          //   • BMP emoji without VS16 (zodiac, symbols — text-presentation default)
+          //     These are missed by \p{Emoji_Presentation} but must not be left in SVG <text>
           const EMOJI_RE = new RegExp(
             '(?:' +
             // ZWJ sequences (e.g. 👨‍👩‍👧)
@@ -158,6 +238,11 @@ jobs:
             '|\\p{Emoji}\\uFE0F(?:[\\u{1F3FB}-\\u{1F3FF}])?' +
             // Default emoji-presentation glyphs (covers ⭐ ☀️ 🔥 etc. without VS16)
             '|\\p{Emoji_Presentation}(?:[\\u{1F3FB}-\\u{1F3FF}])?' +
+            // BMP emoji that are text-presentation by default but used as emoji without VS16:
+            // Zodiac signs ♈-♓ (U+2648-2653), Misc Symbols (U+2600-U+2647, U+2654-U+27BF)
+            // Misc Technical (U+2300-U+23FF), Arrows (U+2190-U+21FF), Geometric (U+25A0-U+25FF)
+            // Dingbats (U+2700-U+27BF), Misc Symbols & Arrows (U+2B00-U+2BFF)
+            '|[\\u2190-\\u21FF\\u2300-\\u27BF\\u25A0-\\u25FF\\u2B00-\\u2BFF\\u2B50\\u2B55\\u231A\\u231B]' +
             ')',
             'gu'
           );
@@ -176,9 +261,9 @@ jobs:
           }
           
           // Remove ALL emoji-adjacent characters from text nodes — nuclear safety net.
-          // Strips: non-BMP, VS16 (0xFE0F), ZWJ (0x200D), keycap combiner (0x20E3),
-          // all variation selectors (0xFE00-0xFE0F), and Misc Symbols (0x2600-0x27BF)
-          // that \p{Emoji_Presentation} may have missed in splitSegments.
+          // Now covers all BMP ranges that EMOJI_RE also catches, so the two are in sync.
+          // Any character caught by EMOJI_RE goes through the emoji/Twemoji path;
+          // sanitizeText is the last-resort safety net for anything that slips through.
           function sanitizeText(str) {
             return [...str].filter(ch => {
               const cp = ch.codePointAt(0);
@@ -187,10 +272,12 @@ jobs:
               if (cp === 0x200D)      return false; // ZWJ
               if (cp === 0x20E3)      return false; // combining enclosing keycap
               if (cp >= 0xFE00 && cp <= 0xFE0F) return false; // variation selectors
-              if (cp >= 0x2600 && cp <= 0x27BF) return false; // misc symbols (☀⭐ etc.)
-              if (cp >= 0x2300 && cp <= 0x23FF) return false; // misc technical (⌚⏰ etc.)
-              if (cp >= 0x2B00 && cp <= 0x2BFF) return false; // misc symbols & arrows
-              if (cp >= 0x1F000)      return false; // SMP emoji (shouldn't be here but guard)
+              if (cp >= 0x2190 && cp <= 0x21FF) return false; // arrows (↑↓→ etc.)
+              if (cp >= 0x2300 && cp <= 0x27BF) return false; // misc technical + symbols + dingbats
+              if (cp >= 0x25A0 && cp <= 0x25FF) return false; // geometric shapes
+              if (cp >= 0x2B00 && cp <= 0x2BFF) return false; // misc symbols & arrows (⭐ etc.)
+              if (cp === 0x231A || cp === 0x231B) return false; // watch / hourglass
+              if (cp >= 0x1F000)      return false; // SMP emoji (guard)
               return true;
             }).join('');
           }
