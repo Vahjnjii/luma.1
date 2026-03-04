@@ -52,7 +52,7 @@ jobs:
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
           git add api/status/
-          git diff --staged --quiet || (git commit -m "start: ${JOB_ID}" && git push)
+          git diff --staged --quiet || (git commit -m "start: ${JOB_ID} [skip ci]" && git push)
 
       - name: Write generator script
         run: |
@@ -455,7 +455,7 @@ jobs:
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
           git add api/status/
-          git diff --staged --quiet || (git commit -m "job: ${{ steps.p.outputs.jobId }}" && git push)
+          git diff --staged --quiet || (git commit -m "job: ${{ steps.p.outputs.jobId }} [skip ci]" && git push)
 
       - name: Write error on failure
         if: failure()
@@ -474,4 +474,4 @@ jobs:
           git config user.name  "LUMA Bot"
           git config user.email "luma-bot@users.noreply.github.com"
           git add api/status/
-          git diff --staged --quiet || (git commit -m "err: ${JOB_ID}" && git push)
+          git diff --staged --quiet || (git commit -m "err: ${JOB_ID} [skip ci]" && git push)
