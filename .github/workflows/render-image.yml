@@ -393,7 +393,7 @@ jobs:
             console.log(`Image ${i+1}/${posts.length} written`);
           }
           console.log('Done: '+results.length+' image(s)');
-                    JSEOF
+          JSEOF
 
       - name: Run generator
         env:
