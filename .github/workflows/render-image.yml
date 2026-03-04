@@ -40,29 +40,33 @@ jobs:
           console.log('Parsed jobId:', d.jobId, '| text chars:', (d.text||'').length);
           EOF
 
-      # ── Safe git push with retry — handles parallel job conflicts ──
+      - name: Git config
+        run: |
+          git config user.name  "LUMA Bot"
+          git config user.email "luma-bot@users.noreply.github.com"
+
+      # Write processing status then push — pull+rebase handles parallel conflicts
       - name: Write processing status
         run: |
           JOB_ID="${{ steps.p.outputs.jobId }}"
           DEVICE="${{ steps.p.outputs.deviceId }}"
           mkdir -p api/status
-          printf '{"jobId":"%s","deviceId":"%s","status":"processing","template":"imggen","total":0,"done":0,"label":"Processing\u2026","timestamp":%s,"results":[]}' \
-            "$JOB_ID" "$DEVICE" "$(date +%s)000" > "api/status/${JOB_ID}.json"
-          git config user.name  "LUMA Bot"
-          git config user.email "luma-bot@users.noreply.github.com"
-          # Retry loop — handles git push conflicts from parallel jobs
-          for i in 1 2 3 4 5; do
-            git add api/status/
-            if git diff --staged --quiet; then
-              echo "Nothing to commit"; break
-            fi
-            git commit -m "start: ${JOB_ID}" && \
-              git push && echo "Push ok" && break || \
-              echo "Push failed (attempt $i), pulling and retrying..." && \
-              git reset --soft HEAD~1 && \
-              git fetch origin main && \
-              git rebase origin/main && \
-              sleep $((i * 2))
+          node -e "
+            const fs=require('fs');
+            fs.writeFileSync('api/status/${JOB_ID}.json', JSON.stringify({
+              jobId:'${JOB_ID}', deviceId:'${DEVICE}',
+              status:'processing', template:'imggen',
+              total:0, done:0, label:'Processing\u2026',
+              timestamp:Date.now(), results:[]
+            }));
+          "
+          for i in $(seq 1 8); do
+            git add api/status/${JOB_ID}.json
+            git diff --staged --quiet && echo "Nothing to commit" && break
+            git commit -m "start: ${JOB_ID}" || true
+            git pull --rebase origin main && git push && echo "Push ok" && break
+            echo "Retry $i..." && sleep $((i * 3))
+            git rebase --abort 2>/dev/null || true
           done
 
       - name: Write generator script
@@ -199,7 +203,6 @@ jobs:
           function xe(s) {
             return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
           }
-
           function parseBold(text) {
             const segs = [], re = /\*\*(.*?)\*\*/g;
             let last = 0, m;
@@ -211,157 +214,118 @@ jobs:
             if (last < text.length) segs.push({ t: text.slice(last), bold: false });
             return segs.filter(s => s.t);
           }
-
           function renderLine(px, y, fs, fw, fill, rawText) {
-            const segs    = parseBold(rawText);
+            const segs = parseBold(rawText);
             const hasBold = segs.some(s => s.bold);
-            if (!hasBold) {
+            if (!hasBold)
               return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(cleanText(rawText))}</text>`;
-            }
-            const spans = segs.map(s => {
-              const w = s.bold ? 900 : fw;
-              const c = s.bold ? '#FFFFFF' : fill;
-              return `<tspan font-weight="${w}" fill="${c}">${xe(s.t)}</tspan>`;
-            }).join('');
+            const spans = segs.map(s =>
+              `<tspan font-weight="${s.bold?900:fw}" fill="${s.bold?'#FFFFFF':fill}">${xe(s.t)}</tspan>`
+            ).join('');
             return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${spans}</text>`;
           }
-
           function isWide(ch) {
             const cp = ch.codePointAt(0);
-            return (cp >= 0x1F000 || (cp >= 0x2600 && cp <= 0x27FF) || (cp >= 0x4E00 && cp <= 0x9FFF) ||
-              (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x20000 && cp <= 0x2FA1F) ||
-              (cp >= 0x3040 && cp <= 0x30FF) || (cp >= 0xAC00 && cp <= 0xD7AF) ||
-              (cp >= 0xFF00 && cp <= 0xFFEF) || (cp >= 0x3000 && cp <= 0x303F) ||
-              (cp >= 0x3200 && cp <= 0x33FF));
+            return (cp>=0x1F000||(cp>=0x2600&&cp<=0x27FF)||(cp>=0x4E00&&cp<=0x9FFF)||
+              (cp>=0x3400&&cp<=0x4DBF)||(cp>=0x20000&&cp<=0x2FA1F)||
+              (cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||
+              (cp>=0xFF00&&cp<=0xFFEF)||(cp>=0x3000&&cp<=0x303F)||(cp>=0x3200&&cp<=0x33FF));
           }
-          function charVisLen(str) {
-            let n = 0;
-            for (const ch of [...(str||'')]) n += isWide(ch) ? 2 : 1;
-            return n;
-          }
-          function wrapLatin(text, cpl) {
-            const words = text.split(' '), lines = [];
-            let cur = '', curLen = 0;
-            for (const word of words) {
-              const wLen = charVisLen(cleanText(word));
-              const sep  = cur ? 1 : 0;
-              if (curLen + sep + wLen > cpl && cur) { lines.push(cur); cur = word; curLen = wLen; }
-              else { cur = cur ? `${cur} ${word}` : word; curLen += sep + wLen; }
+          function charVisLen(str) { let n=0; for(const ch of [...(str||'')]) n+=isWide(ch)?2:1; return n; }
+          function wrapLatin(text,cpl) {
+            const words=text.split(' '),lines=[];let cur='',curLen=0;
+            for(const word of words){
+              const wLen=charVisLen(cleanText(word)),sep=cur?1:0;
+              if(curLen+sep+wLen>cpl&&cur){lines.push(cur);cur=word;curLen=wLen;}
+              else{cur=cur?`${cur} ${word}`:word;curLen+=sep+wLen;}
             }
-            if (cur) lines.push(cur);
-            return lines.length ? lines : [''];
+            if(cur)lines.push(cur);return lines.length?lines:[''];
           }
-          function wrapCJK(text, cpl) {
-            const lines = []; let curRaw = '', curLen = 0, inBold = false;
-            const chars = [...text]; let i = 0;
-            while (i < chars.length) {
-              if (chars[i] === '*' && chars[i+1] === '*') { curRaw += '**'; inBold = !inBold; i += 2; continue; }
-              const ch = chars[i], chLen = isWide(ch) ? 2 : 1;
-              if (curLen + chLen > cpl && cleanText(curRaw).length > 0) {
-                if (inBold) curRaw += '**';
-                lines.push(curRaw);
-                curRaw = inBold ? '**' + ch : ch; curLen = chLen;
-              } else { curRaw += ch; curLen += chLen; }
+          function wrapCJK(text,cpl) {
+            const lines=[];let curRaw='',curLen=0,inBold=false;
+            const chars=[...text];let i=0;
+            while(i<chars.length){
+              if(chars[i]==='*'&&chars[i+1]==='*'){curRaw+='**';inBold=!inBold;i+=2;continue;}
+              const ch=chars[i],chLen=isWide(ch)?2:1;
+              if(curLen+chLen>cpl&&cleanText(curRaw).length>0){
+                if(inBold)curRaw+='**';lines.push(curRaw);
+                curRaw=inBold?'**'+ch:ch;curLen=chLen;
+              }else{curRaw+=ch;curLen+=chLen;}
               i++;
             }
-            if (cleanText(curRaw)) lines.push(curRaw);
-            return lines.length ? lines : [''];
+            if(cleanText(curRaw))lines.push(curRaw);return lines.length?lines:[''];
           }
-          function smartWrap(text, cpl) {
-            if (!text) return [''];
-            const plain = cleanText(text);
-            const wideCount  = [...plain].filter(isWide).length;
-            const spaceCount = (plain.match(/ /g)||[]).length;
-            const isCJK = wideCount > plain.length * 0.3 || (wideCount > 2 && spaceCount < 2);
-            return isCJK ? wrapCJK(text, cpl) : wrapLatin(text, cpl);
+          function smartWrap(text,cpl) {
+            if(!text)return[''];
+            const plain=cleanText(text);
+            const wideCount=[...plain].filter(isWide).length;
+            const spaceCount=(plain.match(/ /g)||[]).length;
+            return(wideCount>plain.length*0.3||(wideCount>2&&spaceCount<2))?wrapCJK(text,cpl):wrapLatin(text,cpl);
           }
-
           async function makeSVG(post) {
-            const W = 1080, H = 1920, PX = 110, PY = 130;
-            const CW = W - PX * 2, BOTTOM = H - PY;
-            const rawTitle = (post.title  || '').trim();
-            const content  = (post.content|| []);
-            const visLen   = charVisLen(cleanText(rawTitle)) + charVisLen(content.map(l=>cleanText(l||'')).join(''));
-            let ts, bs, tlh, blh, gap;
-            if      (visLen < 80)  { ts=96; bs=62; tlh=134; blh=90; gap=76; }
-            else if (visLen < 150) { ts=86; bs=55; tlh=120; blh=82; gap=68; }
-            else if (visLen < 260) { ts=74; bs=49; tlh=104; blh=72; gap=58; }
-            else if (visLen < 420) { ts=65; bs=44; tlh= 92; blh=64; gap=50; }
-            else if (visLen < 620) { ts=55; bs=40; tlh= 80; blh=58; gap=44; }
-            else if (visLen < 900) { ts=48; bs=35; tlh= 70; blh=50; gap=36; }
-            else                   { ts=41; bs=31; tlh= 60; blh=44; gap=32; }
-            const tCPL = Math.floor(CW / (ts * 0.50));
-            const bCPL = Math.floor(CW / (bs * 0.50));
-            const titleLines = smartWrap(rawTitle, tCPL);
-            const bodyLines  = [];
-            for (const line of content) {
-              if (!cleanText(line||'')) { bodyLines.push({ raw:'', gap:true }); }
-              else { for (const w of smartWrap(line, bCPL)) bodyLines.push({ raw:w, gap:false }); }
+            const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOTTOM=H-PY;
+            const rawTitle=(post.title||'').trim(),content=(post.content||[]);
+            const visLen=charVisLen(cleanText(rawTitle))+charVisLen(content.map(l=>cleanText(l||'')).join(''));
+            let ts,bs,tlh,blh,gap;
+            if(visLen<80){ts=96;bs=62;tlh=134;blh=90;gap=76;}
+            else if(visLen<150){ts=86;bs=55;tlh=120;blh=82;gap=68;}
+            else if(visLen<260){ts=74;bs=49;tlh=104;blh=72;gap=58;}
+            else if(visLen<420){ts=65;bs=44;tlh=92;blh=64;gap=50;}
+            else if(visLen<620){ts=55;bs=40;tlh=80;blh=58;gap=44;}
+            else if(visLen<900){ts=48;bs=35;tlh=70;blh=50;gap=36;}
+            else{ts=41;bs=31;tlh=60;blh=44;gap=32;}
+            const tCPL=Math.floor(CW/(ts*0.50)),bCPL=Math.floor(CW/(bs*0.50));
+            const titleLines=smartWrap(rawTitle,tCPL),bodyLines=[];
+            for(const line of content){
+              if(!cleanText(line||'')){bodyLines.push({raw:'',gap:true});}
+              else{for(const w of smartWrap(line,bCPL))bodyLines.push({raw:w,gap:false});}
             }
-            const titleH = titleLines.length * tlh;
-            const bodyH  = bodyLines.reduce((s,l) => s + (l.gap ? blh*0.5 : blh), 0);
-            const totalH = titleH + (bodyLines.length ? gap + bodyH : 0);
-            let y = totalH > (H - PY*2)
-              ? PY + ts
-              : Math.max(PY + ts, Math.round((H - totalH) / 2) + ts);
-            const els = [];
-            for (const line of titleLines) {
-              if (y > BOTTOM + ts) break;
-              els.push(renderLine(PX, y, ts, 800, '#FFFFFF', line));
-              y += tlh;
-            }
-            if (bodyLines.length) {
-              const ay = y + Math.round(gap * 0.28);
-              if (ay < BOTTOM)
-                els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);
-              y += gap;
-            }
-            for (const line of bodyLines) {
-              if (!line.gap && y > BOTTOM + bs) break;
-              if (!line.gap) els.push(renderLine(PX, y, bs, 400, 'rgba(255,255,255,0.85)', line.raw));
-              y += line.gap ? Math.round(blh * 0.5) : blh;
-            }
-            const svgParts = [
+            const titleH=titleLines.length*tlh;
+            const bodyH=bodyLines.reduce((s,l)=>s+(l.gap?blh*0.5:blh),0);
+            const totalH=titleH+(bodyLines.length?gap+bodyH:0);
+            let y=totalH>(H-PY*2)?PY+ts:Math.max(PY+ts,Math.round((H-totalH)/2)+ts);
+            const els=[];
+            for(const line of titleLines){if(y>BOTTOM+ts)break;els.push(renderLine(PX,y,ts,800,'#FFFFFF',line));y+=tlh;}
+            if(bodyLines.length){const ay=y+Math.round(gap*0.28);if(ay<BOTTOM)els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);y+=gap;}
+            for(const line of bodyLines){if(!line.gap&&y>BOTTOM+bs)break;if(!line.gap)els.push(renderLine(PX,y,bs,400,'rgba(255,255,255,0.85)',line.raw));y+=line.gap?Math.round(blh*0.5):blh;}
+            return[
               '<?xml version="1.0" encoding="UTF-8"?>',
               `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`,
               '<defs>',
-              `  <linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">`,
-              '  <stop offset="0%"   stop-color="#06020f"/>',
-              '  <stop offset="55%"  stop-color="#080412"/>',
-              '  <stop offset="100%" stop-color="#00091a"/>',
-              '  </linearGradient>',
-              `  <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>`,
+              `<linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">`,
+              '<stop offset="0%" stop-color="#06020f"/>',
+              '<stop offset="55%" stop-color="#080412"/>',
+              '<stop offset="100%" stop-color="#00091a"/>',
+              '</linearGradient>',
+              `<clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>`,
               '</defs>',
               `<rect width="${W}" height="${H}" fill="url(#bg)"/>`,
               '<g clip-path="url(#clip)">',
               ...els,
-              '</g>',
-              '</svg>',
-            ];
-            return svgParts.join('\n');
+              '</g>','</svg>',
+            ].join('\n');
           }
 
-          const dir = 'api/status';
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-          const results = [];
-          for (let i = 0; i < posts.length; i++) {
-            const svg = await makeSVG(posts[i]);
-            results.push({ title: cleanText(posts[i].title), svg });
-            const isLast = i === posts.length - 1;
-            fs.writeFileSync(`${dir}/${jobId}.json`, JSON.stringify({
-              jobId, deviceId,
-              status:    isLast ? 'done' : 'processing',
-              template:  'imggen',
-              total:     posts.length,
-              done:      i + 1,
-              label:     cleanText(posts[0]?.title || 'Session').slice(0, 80),
-              timestamp: Date.now(),
-              results:   results.map(r => ({ title: r.title, svg: r.svg })),
+          const dir='api/status';
+          fs.mkdirSync(dir,{recursive:true});
+          const results=[];
+          for(let i=0;i<posts.length;i++){
+            const svg=await makeSVG(posts[i]);
+            results.push({title:cleanText(posts[i].title),svg});
+            const isLast=i===posts.length-1;
+            fs.writeFileSync(`${dir}/${jobId}.json`,JSON.stringify({
+              jobId,deviceId,
+              status:isLast?'done':'processing',
+              template:'imggen',
+              total:posts.length,
+              done:i+1,
+              label:cleanText(posts[0]?.title||'Session').slice(0,80),
+              timestamp:Date.now(),
+              results:results.map(r=>({title:r.title,svg:r.svg})),
             }));
             console.log(`Image ${i+1}/${posts.length} written`);
           }
-          console.log('Done: ' + results.length + ' image(s)');
+          console.log('Done: '+results.length+' image(s)');
           JSEOF
 
       - name: Run generator
@@ -371,49 +335,41 @@ jobs:
           WORKER_URL: ${{ secrets.WORKER_URL }}
         run: node /tmp/gen.mjs
 
-      # ── Safe git push with retry — handles parallel job conflicts ──
-      - name: Commit status
+      # Each job only touches its own file — pull+rebase merges cleanly every time
+      - name: Commit and push result
         run: |
-          git config user.name  "LUMA Bot"
-          git config user.email "luma-bot@users.noreply.github.com"
-          for i in 1 2 3 4 5; do
-            git add api/status/
-            if git diff --staged --quiet; then
-              echo "Nothing to commit"; break
-            fi
-            git commit -m "job: ${{ steps.p.outputs.jobId }}" && \
-              git push && echo "Push ok" && break || \
-              echo "Push conflict (attempt $i), rebasing..." && \
-              git reset --soft HEAD~1 && \
-              git fetch origin main && \
-              git rebase origin/main && \
-              sleep $((i * 2))
+          JOB_ID="${{ steps.p.outputs.jobId }}"
+          for i in $(seq 1 8); do
+            git add api/status/${JOB_ID}.json
+            git diff --staged --quiet && echo "Nothing to commit" && break
+            git commit -m "job: ${JOB_ID}" || true
+            git pull --rebase origin main && git push && echo "Push ok" && break
+            echo "Retry $i..." && sleep $((i * 3))
+            git rebase --abort 2>/dev/null || true
           done
 
-      # ── Always write error status if anything above failed ──
+      # On any failure — write error file and push it
       - name: Write error on failure
         if: failure()
         env:
           JOB_ID: ${{ steps.p.outputs.jobId }}
         run: |
+          JOB_ID="${{ steps.p.outputs.jobId }}"
           mkdir -p api/status
           node -e "
-            const fs=require('fs'),j=process.env.JOB_ID;
-            fs.writeFileSync('api/status/'+j+'.json', JSON.stringify({
-              status:'error', jobId:j,
-              error:'Image generation failed. Check Actions logs.',
-              results:[], done:0, total:0, timestamp:Date.now()
+            const fs=require('fs'),j='${JOB_ID}';
+            fs.writeFileSync('api/status/'+j+'.json',JSON.stringify({
+              status:'error',jobId:j,
+              error:'Generation failed — check Actions logs.',
+              results:[],done:0,total:0,timestamp:Date.now()
             }));
+            console.log('Error status written for',j);
           "
-          git config user.name  "LUMA Bot"
-          git config user.email "luma-bot@users.noreply.github.com"
-          for i in 1 2 3 4 5; do
-            git add api/status/
-            if git diff --staged --quiet; then break; fi
-            git commit -m "err: ${{ steps.p.outputs.jobId }}" && \
-              git push && break || \
-              git reset --soft HEAD~1 && \
-              git fetch origin main && \
-              git rebase origin/main && \
-              sleep $((i * 2))
+          for i in $(seq 1 8); do
+            git add api/status/${JOB_ID}.json
+            git diff --staged --quiet && break
+            git commit -m "err: ${JOB_ID}" || true
+            git pull --rebase origin main && git push && echo "Error push ok" && break
+            echo "Error retry $i..." && sleep $((i * 3))
+            git rebase --abort 2>/dev/null || true
           done
