@@ -127,212 +127,30 @@ jobs:
             content: (p.content || []).map(l => decodeEntities(l || '')),
           }));
 
-          // ── ZODIAC + PLANET WORD LISTS ──
-          // Stored as arrays, NOT as object keys, to avoid JS duplicate-key silently
-          // dropping words (e.g. Aries appears in both Spanish and English).
-          const ZODIAC_WORDS = [
-            // English
-            'Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra',
-            'Scorpio','Sagittarius','Capricorn','Aquarius','Pisces',
-            // German
-            'Widder','Stier','Zwillinge','Krebs','Löwe','Jungfrau',
-            'Waage','Skorpion','Schütze','Steinbock','Wassermann','Fische',
-            // French
-            'Bélier','Taureau','Gémeaux','Vierge','Balance','Scorpion',
-            'Sagittaire','Capricorne','Verseau','Poissons',
-            // Spanish
-            'Tauro','Géminis','Cáncer','Léo','Escorpio','Escorpión',
-            'Sagitario','Capricornio','Acuario','Piscis',
-            // Italian
-            'Ariete','Toro','Gemelli','Cancro','Leone','Vergine','Bilancia',
-            'Scorpione','Sagittario','Capricorno','Acquario','Pesci',
-            // Portuguese
-            'Carneiro','Gêmeos','Gémeos','Caranguejo','Leão','Virgem',
-            'Balança','Escorpião','Sagitário','Capricórnio','Aquário','Peixes',
-            // Dutch
-            'Ram','Tweelingen','Kreeft','Leeuw','Maagd','Weegschaal',
-            'Schorpioen','Boogschutter','Steenbok','Waterman','Vissen',
-            // Polish
-            'Baran','Byk','Bliźnięta','Rak','Lew','Panna','Waga',
-            'Strzelec','Koziorożec','Wodnik','Ryby',
-            // Swedish
-            'Väduren','Oxen','Tvillingarna','Kräftan','Lejonet','Jungfrun',
-            'Vågen','Skorpionen','Skytten','Stenbocken','Vattumannen','Fiskarna',
-            // Norwegian
-            'Væren','Tyren','Tvillingene','Krebsen','Løven','Jomfruen',
-            'Vægten','Stenbukken','Vandmanden','Fiskene',
-            // Danish
-            'Vædderen','Tvillingerne','Krebsen','Løven','Jomfruen',
-            'Vægten','Skorpionen','Skytten','Vandmanden','Fiskene',
-            // Russian
-            'Овен','Телец','Близнецы','Рак','Лев','Дева','Весы',
-            'Скорпион','Стрелец','Козерог','Водолей','Рыбы',
-            // Turkish
-            'Koç','Boğa','İkizler','Yengeç','Aslan','Başak','Terazi',
-            'Akrep','Yay','Oğlak','Kova','Balık',
-            // Indonesian
-            'Domba','Kembar','Ketam','Singa','Perawan','Timbangan',
-            'Kalajengking','Pemanah','Kambing','Kendi','Ikan',
-            // Hindi
-            'मेष','वृषभ','मिथुन','कर्क','कर्कट','सिंह','कन्या',
-            'तुला','वृश्चिक','धनु','मकर','कुंभ','मीन',
-            // Tamil
-            'மேஷம்','ரிஷபம்','மிதுனம்','கடகம்','சிம்மம்','கன்னி',
-            'துலாம்','விருச்சிகம்','தனுசு','மகரம்','கும்பம்','மீனம்',
-            // Malayalam
-            'മേഷം','ഇടവം','മിഥുനം','കർക്കടകം','ചിങ്ങം','കന്നി',
-            'തുലാം','വൃശ്ചികം','ധനു','മകരം','കുംഭം','മീനം',
-            // Telugu
-            'మేషం','వృషభం','మిథునం','కర్కాటకం','సింహం','కన్య',
-            'తుల','వృశ్చికం','ధనుస్సు','మకరం','కుంభం','మీనం',
-            // Kannada
-            'ಮೇಷ','ವೃಷಭ','ಮಿಥುನ','ಕರ್ಕಾಟಕ','ಸಿಂಹ','ಕನ್ಯಾ',
-            'ತುಲಾ','ವೃಶ್ಚಿಕ','ಧನು','ಮಕರ','ಕುಂಭ','ಮೀನ',
-            // Bengali
-            'মেষ','বৃষভ','মিথুন','কর্কট','সিংহ','কন্যা',
-            'তুলা','বৃশ্চিক','ধনু','মকর','কুম্ভ','মীন',
-            // Chinese
-            '白羊座','金牛座','双子座','巨蟹座','狮子座','处女座',
-            '天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座',
-            '牡羊座','雙子座','獅子座','處女座','天蠍座','雙魚座',
-            // Japanese
-            '牡牛座','蟹座','乙女座','蠍座','山羊座','魚座',
-            // Arabic
-            'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء',
-            'الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
-          ];
+          // ── Zodiac bold — all major languages ──
+          // Simple regex, idempotent (won't double-bold already-bolded words)
+          const ZODIAC_RE = /(?<!\*\*)(白羊座|牡羊座|金牛座|雙子座|双子座|巨蟹座|獅子座|狮子座|處女座|处女座|天秤座|天蠍座|天蝎座|射手座|摩羯座|水瓶座|雙魚座|双鱼座|牡牛座|蟹座|乙女座|蠍座|山羊座|魚座|الحمل|الثور|الجوزاء|السرطان|الأسد|العذراء|الميزان|العقرب|القوس|الجدي|الدلو|الحوت|মেষ|বৃষভ|মিথুন|কর্কট|সিংহ|কন্যা|তুলা|বৃশ্চিক|ধনু|মকর|কুম্ভ|মীন|ಮೇಷ|ವೃಷಭ|ಮಿಥುನ|ಕರ್ಕಾಟಕ|ಸಿಂಹ|ಕನ್ಯಾ|ತುಲಾ|ವೃಶ್ಚಿಕ|ಧನು|ಮಕರ|ಕುಂಭ|ಮೀನ|మేషం|వృషభం|మిథునం|కర్కాటకం|సింహం|కన్య|తుల|వృశ్చికం|ధనుస్సు|మకరం|కుంభం|మీనం|മേഷം|ഇടവം|മിഥുനം|കർക്കടകം|ചിങ്ങം|കന്നി|തുലാം|വൃശ്ചികം|ധനു|മകരം|കുംഭം|മീനം|மேஷம்|ரிஷபம்|மிதுனம்|கடகம்|சிம்மம்|கன்னி|துலாம்|விருச்சிகம்|தனுசு|மகரம்|கும்பம்|மீனம்|मेष|वृषभ|मिथुन|कर्क|कर्कट|सिंह|कन्या|तुला|वृश्चिक|धनु|मकर|कुंभ|मीन|Овен|Телец|Близнецы|Рак|Лев|Дева|Весы|Скорпион|Стрелец|Козерог|Водолей|Рыбы|Väduren|Oxen|Tvillingarna|Kräftan|Lejonet|Jungfrun|Vågen|Skorpionen|Skytten|Stenbocken|Vattumannen|Fiskarna|Væren|Tyren|Tvillingene|Krebsen|Løven|Jomfruen|Vægten|Stenbukken|Vandmanden|Fiskene|Baran|Byk|Bliźnięta|Rak|Lew|Panna|Waga|Skorpion|Strzelec|Koziorożec|Wodnik|Ryby|Koç|Boğa|İkizler|Yengeç|Aslan|Başak|Terazi|Akrep|Yay|Oğlak|Kova|Balık|Ram|Tweelingen|Kreeft|Leeuw|Maagd|Weegschaal|Schorpioen|Boogschutter|Steenbok|Waterman|Vissen|Ariete|Toro|Gemelli|Cancro|Leone|Vergine|Bilancia|Scorpione|Sagittario|Capricorno|Acquario|Pesci|Carneiro|Touro|Gêmeos|Gémeos|Caranguejo|Leão|Virgem|Balança|Escorpião|Sagitário|Capricórnio|Aquário|Peixes|Bélier|Taureau|Gémeaux|Vierge|Balance|Scorpion|Sagittaire|Capricorne|Verseau|Poissons|Widder|Stier|Zwillinge|Krebs|Löwe|Jungfrau|Waage|Skorpion|Schütze|Steinbock|Wassermann|Fische|Aries|Taurus|Gemini|Cancer|Leo|Virgo|Libra|Scorpio|Sagittarius|Capricorn|Aquarius|Pisces|Tauro|Géminis|Cáncer|Escorpio|Escorpión|Sagitario|Capricornio|Acuario|Piscis)(?!\*\*)/giu;
 
-          const PLANET_WORDS = [
-            'Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu','Uranus','Neptune','Pluto',
-            'सूर्य','चंद्र','मंगल','बुध','गुरु','शुक्र','शनि','राहु','केतु',
-            '太阳','月亮','火星','水星','木星','金星','土星',
-            'Sonne','Mond','Merkur',
-            'الشمس','القمر','المريخ','عطارد','المشتري','الزهرة','زحل',
-            'Soleil','Lune','Mercure','Vénus','Saturne',
-            'Sol','Luna','Marte','Mercurio','Júpiter','Saturno',
-            'Sole','Giove','Venere',
-            'Słońce','Księżyc','Merkury','Jowisz','Wenus',
-            'Солнце','Луна','Марс','Меркурий','Юпитер','Венера','Сатурн',
-          ];
-
-          // Build a lowercase lookup set for fast astro detection
-          const ZODIAC_LOWER_SET = new Set(ZODIAC_WORDS.map(w => w.toLowerCase()));
-
-          const TIMING_RE = /(?<!\*\*)\b(Today|Tomorrow|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Special|Excellent|Favorable|Unfavorable|Good|Bad|Critical|Best|Worst)\b(?!\*\*)/gi;
-
-          // Build ONE regex from all zodiac+planet words sorted longest-first
-          // Uses Unicode word boundaries via lookahead/lookbehind
-          const _boldWords = [...ZODIAC_WORDS, ...PLANET_WORDS]
-            .sort((a, b) => b.length - a.length)
-            .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-          // Match a word only when preceded and followed by non-letter characters
-          // (or start/end of string) — prevents partial matches inside longer words
-          const BOLD_RE = new RegExp(
-            '(?<![\\p{L}\\p{M}])(' + _boldWords.join('|') + ')(?![\\p{L}\\p{M}])',
-            'gu'
-          );
-
-          function applyBold(t) {
-            if (!t) return t;
-            // Bold zodiac/planet words — skip if already wrapped in **
-            t = t.replace(BOLD_RE, (match, word, offset) => {
-              const before = t.slice(Math.max(0, offset - 2), offset);
-              if (before === '**') return match; // already bolded
-              return '**' + word + '**';
-            });
-            // Numbers with units
-            t = t.replace(/(?<!\*)\b(\d+(?:\.\d+)?\s*[%₹$€£]|[₹$€£]\s*\d+(?:\.\d+)?|\d+(?:st|nd|rd|th))\b(?!\*)/g, '**$1**');
-            t = t.replace(TIMING_RE, '**$1**');
-            // Clean up any doubled asterisks
-            t = t.replace(/\*{4}/g, '**').replace(/\*\*(\s+)\*\*/g, '$1');
-            return t;
+          function ensureZodiacBold(text) {
+            if (!text) return text;
+            return text.replace(ZODIAC_RE, '**$1**');
           }
 
+          // Apply zodiac bold to title + all content lines
           posts = posts.map(p => ({
-            title:   p.title,  // title: no bold, no emoji ever
-            content: p.content.map(l => l ? applyBold(l) : l),
+            title:   ensureZodiacBold(p.title),
+            content: (p.content || []).map(l => l ? ensureZodiacBold(l) : l),
           }));
-
-          // ── Emoji / bullet logic ──────────────────────────────────────────
-          // Rules (in priority order):
-          // 1. Line already has emoji anywhere → keep EXACTLY as-is, add nothing
-          // 2. Paragraph mode (avg line > 60 chars, ≤ 5 lines) → no emoji, plain text
-          // 3. Astro content detected → add topic emoji as bullet at start
-          // 4. Non-astro, short line (≤ 72 chars) → add topic emoji as bullet
-          // 5. Non-astro, long line → no emoji, plain paragraph text
-
-          const HAS_EMOJI_RE = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/u;
-
-          function hasEmoji(str) {
-            return HAS_EMOJI_RE.test(cleanText(str || ''));
-          }
-
-          function isAstroContent(allPosts) {
-            const allText = allPosts.map(p =>
-              (p.title || '') + ' ' + (p.content || []).join(' ')
-            ).join(' ');
-            // Case-insensitive check against lowercase zodiac set
-            const lower = allText.toLowerCase();
-            if ([...ZODIAC_LOWER_SET].some(w => lower.includes(w))) return true;
-            if (/zodiac|horoscope|rashifal|rashi|\bastro\b|kundali|nakshatra|horoskop|hor[oó]scopo|гороскоп|bur[çc]|ramalan/i.test(allText)) return true;
-            return false;
-          }
-
-          function isParagraphStyle(lines) {
-            const nonEmpty = lines.filter(l => l && cleanText(l).length > 0);
-            if (!nonEmpty.length) return false;
-            const avgLen = nonEmpty.reduce((s, l) => s + cleanText(l).length, 0) / nonEmpty.length;
-            return avgLen > 60 && nonEmpty.length <= 5;
-          }
-
-          const isAstro = isAstroContent(posts);
-
-          function topicEmoji(text) {
-            const s = (text || '').toLowerCase();
-            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces|zodiac|rashi|horoscope|rashifal|horoskop|bur[çc]|rashi/i.test(s)) return '🔮';
-            if (/lucky|luck|fortune|auspicious|geluk|glück/i.test(s))  return '🍀';
-            if (/warning|caution|alert|danger/i.test(s))               return '⚠️';
-            if (/love|heart|romance|relationship|liebe|amour|amor/i.test(s)) return '❤️';
-            if (/money|wealth|finance|earn|profit|geld|argent/i.test(s)) return '💰';
-            if (/health|fitness|body/i.test(s))                        return '💪';
-            if (/career|job|work|business/i.test(s))                   return '💼';
-            if (/study|learn|education|knowledge/i.test(s))            return '📚';
-            if (/travel|journey|trip/i.test(s))                        return '✈️';
-            if (/family|home|house/i.test(s))                          return '🏠';
-            if (/\bsun\b|solar/i.test(s))                             return '☀️';
-            if (/\bmoon\b|lunar/i.test(s))                            return '🌙';
-            if (/fire|energy|passion/i.test(s))                        return '🔥';
-            if (/win|success|victory/i.test(s))                        return '🏆';
-            return '✨';
-          }
-
-          function processLine(line, astro, para) {
-            if (!line || !line.trim()) return line;
-            // Rule 1: already has emoji → keep exactly as-is
-            if (hasEmoji(line)) return line;
-            // Rule 2: paragraph mode → no bullet
-            if (para) return line;
-            const plain = cleanText(line);
-            // Rule 3 & 4: add emoji bullet
-            if (astro || plain.length <= 72) return topicEmoji(plain) + ' ' + line.trimStart();
-            // Rule 5: long non-astro line → plain
-            return line;
-          }
-
-          posts = posts.map(p => {
-            const para = isParagraphStyle(p.content || []);
-            return {
-              title:   p.title,
-              content: (p.content || []).map(l => processLine(l, isAstro, para)),
-            };
-          });
 
           const EMOJI_FONT = `'Apple Color Emoji','Noto Color Emoji','Segoe UI Emoji','Segoe UI Symbol'`;
           const BASE_FONT  = `'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif,${EMOJI_FONT}`;
 
+          // ── XML escape ───────────────────────────────────────────────────────────
           function xe(s) {
             return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
           }
+
+          // ── Parse **bold** markers → segments ───────────────────────────────────
           function parseBold(text) {
             const segs = [], re = /\*\*(.*?)\*\*/g;
             let last = 0, m;
@@ -345,156 +163,207 @@ jobs:
             return segs.filter(s => s.t);
           }
 
-          // ── renderLine: plain line ──
-          function renderLine(px, y, fs, fw, fill, rawText) {
+          // ── Render one line — identical to reference, supports **bold** tspan ───
+          function renderLine(px, y, ff, fs, fw, fill, rawText) {
             const segs = parseBold(rawText);
             const hasBold = segs.some(s => s.bold);
             if (!hasBold)
-              return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(cleanText(rawText))}</text>`;
+              return `<text x="${px}" y="${y}" font-family="${ff}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(cleanText(rawText))}</text>`;
             const spans = segs.map(s =>
               `<tspan font-weight="${s.bold?900:fw}" fill="${s.bold?'#FFFFFF':fill}">${xe(s.t)}</tspan>`
             ).join('');
-            return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${spans}</text>`;
+            return `<text x="${px}" y="${y}" font-family="${ff}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${spans}</text>`;
           }
 
-          // ── renderBulletLine: emoji bullet + indented wrapped text ──
-          // The first emoji acts as a bullet point. Continuation lines indent to align after it.
-          function renderBulletLine(px, y, fs, fw, fill, rawText, blh, bCPL, W, PX) {
-            const plain = cleanText(rawText);
-            // Detect leading emoji
-            const emojiRE = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F\u20E3?|\p{Emoji}\uFE0F)/u;
-            const em = plain.match(emojiRE);
-            if (!em) return [renderLine(px, y, fs, fw, fill, rawText), y + blh];
-
-            const emojiChar = em[0];
-            const emojiW    = Math.round(fs * 1.2);   // emoji column width
-            const indent    = px + emojiW + Math.round(fs * 0.35); // text starts here
-            const textCW    = W - indent - PX;
-            const textCPL   = Math.floor(textCW / (fs * 0.50));
-
-            // Strip the leading emoji from the rest of the text
-            const rest = rawText.slice(rawText.indexOf(emojiChar) + emojiChar.length).trimStart();
-
-            // Wrap the rest into lines that fit within the indented column
-            const wrapped = wrapLatin(rest, textCPL);
-
-            const out = [];
-            // Emoji on first line
-            out.push(`<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(emojiChar)}</text>`);
-            // First text line beside the emoji
-            if (wrapped[0]) out.push(renderLine(indent, y, fs, fw, fill, wrapped[0]));
-            // Continuation lines indented
-            let cy = y + blh;
-            for (let i = 1; i < wrapped.length; i++) {
-              out.push(renderLine(indent, cy, fs, fw, fill, wrapped[i]));
-              cy += blh;
-            }
-            return [out.join('\n'), cy];
-          }
-
+          // ── Wide-char detection (CJK, emoji, fullwidth) ─────────────────────────
           function isWide(ch) {
             const cp = ch.codePointAt(0);
-            return (cp>=0x1F000||(cp>=0x2600&&cp<=0x27FF)||(cp>=0x4E00&&cp<=0x9FFF)||
-              (cp>=0x3400&&cp<=0x4DBF)||(cp>=0x20000&&cp<=0x2FA1F)||
-              (cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||
-              (cp>=0xFF00&&cp<=0xFFEF)||(cp>=0x3000&&cp<=0x303F)||(cp>=0x3200&&cp<=0x33FF));
+            return (
+              cp >= 0x1F000 ||
+              (cp >= 0x2600 && cp <= 0x27FF) ||
+              (cp >= 0xFE00 && cp <= 0xFE0F) ||
+              (cp >= 0x4E00 && cp <= 0x9FFF) ||
+              (cp >= 0x3400 && cp <= 0x4DBF) ||
+              (cp >= 0x20000 && cp <= 0x2FA1F) ||
+              (cp >= 0x3040 && cp <= 0x30FF) ||
+              (cp >= 0xAC00 && cp <= 0xD7AF) ||
+              (cp >= 0x1100 && cp <= 0x11FF) ||
+              (cp >= 0xFF00 && cp <= 0xFFEF) ||
+              (cp >= 0x3000 && cp <= 0x303F) ||
+              (cp >= 0x3200 && cp <= 0x33FF)
+            );
           }
-          function charVisLen(str) { let n=0; for(const ch of [...(str||'')]) n+=isWide(ch)?2:1; return n; }
-          function wrapLatin(text,cpl) {
-            const words=text.split(' '),lines=[];let cur='',curLen=0;
-            for(const word of words){
-              const wLen=charVisLen(cleanText(word)),sep=cur?1:0;
-              if(curLen+sep+wLen>cpl&&cur){lines.push(cur);cur=word;curLen=wLen;}
-              else{cur=cur?`${cur} ${word}`:word;curLen+=sep+wLen;}
+
+          function charVisLen(str) {
+            let n = 0;
+            for (const ch of [...(str||'')]) n += isWide(ch) ? 2 : 1;
+            return n;
+          }
+
+          // ── Word wrap ────────────────────────────────────────────────────────────
+          function wrapLatin(text, cpl) {
+            const words = text.split(' '), lines = [];
+            let cur = '', curLen = 0;
+            for (const word of words) {
+              const wLen = charVisLen(cleanText(word)), sep = cur ? 1 : 0;
+              if (curLen + sep + wLen > cpl && cur) { lines.push(cur); cur = word; curLen = wLen; }
+              else { cur = cur ? `${cur} ${word}` : word; curLen += sep + wLen; }
             }
-            if(cur)lines.push(cur);return lines.length?lines:[''];
+            if (cur) lines.push(cur);
+            return lines.length ? lines : [''];
           }
-          function wrapCJK(text,cpl) {
-            const lines=[];let curRaw='',curLen=0,inBold=false;
-            const chars=[...text];let i=0;
-            while(i<chars.length){
-              if(chars[i]==='*'&&chars[i+1]==='*'){curRaw+='**';inBold=!inBold;i+=2;continue;}
-              const ch=chars[i],chLen=isWide(ch)?2:1;
-              if(curLen+chLen>cpl&&cleanText(curRaw).length>0){
-                if(inBold)curRaw+='**';lines.push(curRaw);
-                curRaw=inBold?'**'+ch:ch;curLen=chLen;
-              }else{curRaw+=ch;curLen+=chLen;}
+
+          function wrapCJK(text, cpl) {
+            const lines = []; let curRaw = '', curLen = 0, inBold = false;
+            const chars = [...text]; let i = 0;
+            while (i < chars.length) {
+              if (chars[i] === '*' && chars[i+1] === '*') { curRaw += '**'; inBold = !inBold; i += 2; continue; }
+              const ch = chars[i], chLen = isWide(ch) ? 2 : 1;
+              if (curLen + chLen > cpl && cleanText(curRaw).length > 0) {
+                if (inBold) curRaw += '**';
+                lines.push(curRaw);
+                curRaw = inBold ? '**' + ch : ch; curLen = chLen;
+              } else { curRaw += ch; curLen += chLen; }
               i++;
             }
-            if(cleanText(curRaw))lines.push(curRaw);return lines.length?lines:[''];
-          }
-          function smartWrap(text,cpl) {
-            if(!text)return[''];
-            const plain=cleanText(text);
-            const wideCount=[...plain].filter(isWide).length;
-            const spaceCount=(plain.match(/ /g)||[]).length;
-            return(wideCount>plain.length*0.3||(wideCount>2&&spaceCount<2))?wrapCJK(text,cpl):wrapLatin(text,cpl);
+            if (cleanText(curRaw)) lines.push(curRaw);
+            return lines.length ? lines : [''];
           }
 
-          async function makeSVG(post, imgIndex) {
-            const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOTTOM=H-PY;
-            const rawTitle=(post.title||'').trim(),content=(post.content||[]);
-            const visLen=charVisLen(cleanText(rawTitle))+charVisLen(content.map(l=>cleanText(l||'')).join(''));
+          function smartWrap(text, cpl) {
+            if (!text) return [''];
+            const plain = cleanText(text);
+            const wideCount  = [...plain].filter(isWide).length;
+            const spaceCount = (plain.match(/ /g) || []).length;
+            const isCJK = wideCount > plain.length * 0.3 || (wideCount > 2 && spaceCount < 2);
+            return isCJK ? wrapCJK(text, cpl) : wrapLatin(text, cpl);
+          }
 
-            let ts,bs,tlh,blh,gap;
-            if(visLen<80){ts=96;bs=62;tlh=134;blh=96;gap=76;}
-            else if(visLen<150){ts=86;bs=55;tlh=120;blh=86;gap=68;}
-            else if(visLen<260){ts=74;bs=49;tlh=104;blh=76;gap=58;}
-            else if(visLen<420){ts=65;bs=44;tlh=92;blh=68;gap=50;}
-            else if(visLen<620){ts=55;bs=40;tlh=80;blh=62;gap=44;}
-            else if(visLen<900){ts=48;bs=35;tlh=70;blh=54;gap=36;}
-            else{ts=41;bs=31;tlh=60;blh=48;gap=32;}
+          // ── Detect a leading emoji codepoint at the very start of a string ──────
+          // Returns the emoji string, or null if line does not start with an emoji
+          function getLeadingEmoji(str) {
+            // Work on the raw string (not cleanText — we need the original position)
+            const s = (str || '').trimStart();
+            // Match one emoji cluster (base + optional variation selector + optional keycap)
+            const m = s.match(/^(\p{Extended_Pictographic}[\uFE0F\u20E3]?)/u);
+            return m ? m[0] : null;
+          }
 
-            // line height = font size * 1.55 for a little extra breathing room (not a full line gap)
-            blh = Math.round(bs * 1.55);
-            tlh = Math.round(ts * 1.40);
+          // ── Main SVG generator ───────────────────────────────────────────────────
+          // Identical to reference except:
+          //   1. Background = solid #000000 (not gradient)
+          //   2. Lines starting with an emoji use two-column layout:
+          //      • emoji stays at PX (left column)
+          //      • text starts at PX + emojiWidth + gap (right column)
+          //      • continuation lines wrap under the TEXT column, not under the emoji
+          async function makeSVG(post) {
+            const W = 1080, H = 1920, PX = 110, PY = 130;
+            const CW = W - PX * 2, BOTTOM = H - PY;
 
-            const tCPL=Math.floor(CW/(ts*0.50)),bCPL=Math.floor(CW/(bs*0.50));
-            const titleLines=smartWrap(rawTitle,tCPL);
+            const rawTitle = (post.title || '').trim();
+            const content  = (post.content || []);
 
-            const totalH_estimate = titleLines.length*tlh + gap + content.filter(l=>cleanText(l||'')).length * blh * 1.3;
-            let y = totalH_estimate>(H-PY*2) ? PY+ts : Math.max(PY+ts, Math.round((H-totalH_estimate)/2)+ts);
+            const visLen = charVisLen(cleanText(rawTitle)) + charVisLen(content.map(l => cleanText(l||'')).join(''));
+            let ts, bs, tlh, blh, gap;
+            if      (visLen < 80)  { ts=96; bs=62; tlh=134; blh=90;  gap=76; }
+            else if (visLen < 150) { ts=86; bs=55; tlh=120; blh=82;  gap=68; }
+            else if (visLen < 260) { ts=74; bs=49; tlh=104; blh=72;  gap=58; }
+            else if (visLen < 420) { ts=65; bs=44; tlh=92;  blh=64;  gap=50; }
+            else if (visLen < 620) { ts=55; bs=40; tlh=80;  blh=58;  gap=44; }
+            else if (visLen < 900) { ts=48; bs=35; tlh=70;  blh=50;  gap=36; }
+            else                   { ts=41; bs=31; tlh=60;  blh=44;  gap=32; }
 
-            const els=[];
+            const tCPL = Math.floor(CW / (ts * 0.50));
+            const bCPL = Math.floor(CW / (bs * 0.50));
 
-            // ── Title — plain text, no emoji, bold white ──
-            for(const line of titleLines){
-              if(y>BOTTOM+ts)break;
-              els.push(renderLine(PX,y,ts,800,'#FFFFFF',line));
-              y+=tlh;
-            }
+            // Title lines — same as reference
+            const titleLines = smartWrap(rawTitle, tCPL);
 
-            // ── Divider bar after title ──
-            if(content.filter(l=>cleanText(l||'')).length){
-              const ay=y+Math.round(gap*0.28);
-              if(ay<BOTTOM) els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);
-              y+=gap;
-            }
-
-            // ── Body lines — emoji bullet layout ──
-            for(const line of content){
-              if(!cleanText(line||'')){
-                // Empty line = small half-gap spacer
-                y += Math.round(blh * 0.35);
+            // Body lines — same as reference EXCEPT emoji-bullet handling
+            // An emoji at the start of a line is treated as a fixed left-column bullet.
+            // The text occupies a right column; continuation wraps stay in that column.
+            const bodyLines = [];
+            for (const line of content) {
+              const raw = line || '';
+              if (!cleanText(raw)) {
+                bodyLines.push({ raw: '', gap: true, px: PX });
                 continue;
               }
-              if(y>BOTTOM+bs)break;
-              const [svgEl, newY] = renderBulletLine(PX, y, bs, 400, 'rgba(255,255,255,0.88)', line, blh, bCPL, W, PX);
-              els.push(svgEl);
-              y = newY;
+              const em = getLeadingEmoji(raw);
+              if (em) {
+                // Pixel width of the emoji column: ~1.3× body font-size + small gap
+                const emColPx  = Math.round(bs * 1.3) + Math.round(bs * 0.25);
+                const textPX   = PX + emColPx;           // x-start of text column
+                const textCW   = W - textPX - PX;        // available width for text
+                const textCPL  = Math.floor(textCW / (bs * 0.50));
+                const rest     = raw.slice(raw.indexOf(em) + em.length).trimStart();
+                const wrapped  = smartWrap(rest || '', textCPL);
+                // Emit: emoji on its own at PX, first text line at textPX on same y
+                // We store them as two entries for the same y — handled in render loop
+                bodyLines.push({ raw: em,              gap: false, px: PX,     sameY: true  });
+                bodyLines.push({ raw: wrapped[0]||'',  gap: false, px: textPX, sameY: false });
+                // Continuation lines: indent to text column, each on its own y
+                for (let wi = 1; wi < wrapped.length; wi++) {
+                  bodyLines.push({ raw: wrapped[wi], gap: false, px: textPX, sameY: false });
+                }
+              } else {
+                for (const w of smartWrap(raw, bCPL)) {
+                  bodyLines.push({ raw: w, gap: false, px: PX });
+                }
+              }
             }
 
-            return[
-              '<?xml version="1.0" encoding="UTF-8"?>',
-              `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`,
-              '<defs>',
-              // Pure black background
-              '</defs>',
-              `<rect width="${W}" height="${H}" fill="#000000"/>`,
-              '<g>',
-              ...els,
-              '</g>','</svg>',
-            ].join('\n');
+            // Total height — sameY lines share a row so don't add to height
+            const titleH = titleLines.length * tlh;
+            const bodyH  = bodyLines.reduce((s, l) => {
+              if (l.sameY) return s; // emoji half of pair — no extra height
+              return s + (l.gap ? blh * 0.5 : blh);
+            }, 0);
+            const totalH = titleH + (bodyLines.length ? gap + bodyH : 0);
+            let y = totalH > (H - PY * 2)
+              ? PY + ts
+              : Math.max(PY + ts, Math.round((H - totalH) / 2) + ts);
+
+            const els = [];
+
+            // Title
+            for (const line of titleLines) {
+              if (y > BOTTOM + ts) break;
+              els.push(renderLine(PX, y, BASE_FONT, ts, 800, '#FFFFFF', line));
+              y += tlh;
+            }
+
+            // Accent bar — identical to reference
+            if (bodyLines.length) {
+              const ay = y + Math.round(gap * 0.28);
+              if (ay < BOTTOM)
+                els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);
+              y += gap;
+            }
+
+            // Body
+            for (const line of bodyLines) {
+              if (!line.gap && !line.sameY && y > BOTTOM + bs) break;
+              if (!line.gap) {
+                els.push(renderLine(line.px, y, BASE_FONT, bs, 400, 'rgba(255,255,255,0.85)', line.raw));
+              }
+              // Only advance y when sameY is false (text column) or it's a gap line
+              if (!line.sameY) {
+                y += line.gap ? Math.round(blh * 0.5) : blh;
+              }
+            }
+
+            // SVG — black background, clip overflow
+            return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>
+</defs>
+<rect width="${W}" height="${H}" fill="#000000"/>
+<g clip-path="url(#clip)">
+${els.join('\n')}
+</g>
+</svg>`;
           }
 
           const dir='api/status';
