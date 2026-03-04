@@ -348,7 +348,8 @@ jobs:
             }));
             console.log(`Image ${i + 1} / ${posts.length} written`);
           }
-          console.log('All done: ' + results.length + ' image(s)');\n          JSEOF
+          console.log('All done: ' + results.length + ' image(s)');
+          JSEOF
 
       - name: Run generator
         env:
