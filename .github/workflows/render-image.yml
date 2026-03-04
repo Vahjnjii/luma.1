@@ -309,13 +309,13 @@ jobs:
             return isCJK ? wrapCJK(text, cpl) : wrapLatin(text, cpl);
           }
 
-          // ── Emoji-bullet helpers ─────────────────────────────────────────
+          // == Emoji-bullet helpers ==
           // If the FIRST character of a line is an emoji, treat it as a bullet.
           // Wrapped continuation lines indent to align text after the emoji.
           const LEAD_EMOJI_RE = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u;
 
           function splitLeadEmoji(raw) {
-            // Returns { bullet: '🔥 ', rest: 'text...' } or { bullet: null, rest: raw }
+            // Returns { bullet: '<emoji> ', rest: 'text...' } or { bullet: null, rest: raw }
             const plain = cleanText(raw || '');
             const m = LEAD_EMOJI_RE.exec(plain);
             if (!m) return { bullet: null, rest: raw };
@@ -394,7 +394,7 @@ jobs:
               y += line.gap ? Math.round(blh * 0.5) : blh;
             }
 
-            // ── Image number badge (top-right inside template) ──
+            // == Image number badge (top-right inside template) ==
             const numLabel = String(imgIndex + 1);
             const numBadge = `<text x="${W - PX}" y="${PY - 20}" font-family="${BASE_FONT}" font-size="36" font-weight="700" fill="rgba(255,255,255,0.35)" text-anchor="end" xml:space="preserve">${numLabel}</text>`;
 
