@@ -327,6 +327,7 @@ body::before{
 .img-card.was-shared{border-color:rgba(52,211,153,.65)!important;box-shadow:0 0 12px rgba(52,211,153,.18)}
 .img-card.was-saved {border-color:rgba(96,165,250,.65)!important;box-shadow:0 0 12px rgba(96,165,250,.18)}
 .img-card.was-copied{border-color:rgba(167,139,250,.65)!important;box-shadow:0 0 12px rgba(167,139,250,.18)}
+.img-card-label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.35);padding:6px 10px 4px;text-align:left;}
 .img-card.was-shared.was-saved{border-color:rgba(52,211,153,.65)!important}
 
 /* Badge overlay at top-right of image */
@@ -1460,6 +1461,7 @@ function addImgCard(jobId,item,idx) {
   card.id='card-'+ek;
   card.style.animationDelay=(idx%6*60)+'ms';
   card.innerHTML=`
+    <div class="img-card-label">Image ${idx+1}</div>
     <div class="img-preview loading" id="prev-${ek}">
       <img src="${imgSrc}" alt="${xe(item.title||'')}"
         onload="this.closest('.img-preview')?.classList.remove('loading')">
