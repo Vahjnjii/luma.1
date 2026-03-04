@@ -900,7 +900,9 @@ window._doFbSignOut = function() {
 const CFG = {
   owner:  'Vahjnjii',
   repo:   'luma.1',
-  issue:  1,
+  // One issue per parallel lane — create issues #1 through #6 in your repo.
+  // Each job picks a different issue so GitHub triggers all Actions simultaneously.
+  issues: [1, 2, 3, 4, 5, 6],
   worker: 'https://luma.shreevathsa2k21-4fa.workers.dev',
 };
 
@@ -993,11 +995,30 @@ document.addEventListener('click', e => {
 /* ═══════════════════════════════════════════════════════════
    GITHUB API
    ═══════════════════════════════════════════════════════════ */
+// Pick a free issue lane based on how many jobs are currently generating.
+// Each active job occupies one lane so they all hit different issues in parallel.
+function pickIssueLane() {
+  const issues = CFG.issues || [CFG.issue || 1];
+  const usedLanes = _sessions
+    .filter(s => s.status === 'generating' && s.issueLane != null)
+    .map(s => s.issueLane);
+  for (const lane of issues) {
+    if (!usedLanes.includes(lane)) return lane;
+  }
+  // All lanes busy — fall back to first (shouldn't happen if MAX_ACTIVE <= issues.length)
+  return issues[0];
+}
+
 async function ghComment(type, payload) {
   const prefix = type === 'render-video' ? 'LUMA_VID' : 'LUMA_IMG';
   const body   = prefix + ':' + JSON.stringify(payload);
 
-  console.log('[LUMA] Posting comment to GitHub issue', CFG.issue, '| prefix:', prefix, '| jobId:', payload.jobId);
+  // Pick a unique issue lane for this job so each Action triggers independently
+  const lane = pickIssueLane();
+  // Store the lane on the session so pickIssueLane knows it's occupied
+  updateSession(payload.jobId, { issueLane: lane });
+
+  console.log('[LUMA] Posting comment to GitHub issue', lane, '| prefix:', prefix, '| jobId:', payload.jobId);
 
   const r = await fetch(CFG.worker, {
     method: 'POST',
@@ -1005,7 +1026,7 @@ async function ghComment(type, payload) {
     body: JSON.stringify({
       owner: CFG.owner,
       repo:  CFG.repo,
-      issue: CFG.issue,
+      issue: lane,
       body,
     })
   });
