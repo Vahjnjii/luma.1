@@ -58,74 +58,70 @@ jobs:
         run: |
           cat > /tmp/gen.mjs << 'JSEOF'
           import fs from 'fs';
-          
+
           const jobId    = process.env.JOB_ID;
           const text     = fs.readFileSync('/tmp/input_text.txt', 'utf8').trim();
           const deviceId = process.env.DEVICE_ID;
           const worker   = process.env.WORKER_URL;
-          
+
           if (!jobId || !text) { console.error('Missing jobId or text'); process.exit(1); }
           if (!worker)         { console.error('Missing WORKER_URL secret'); process.exit(1); }
-          
-          // ── Call Cloudflare Worker AI — it parses text into posts ──
+
+          // ── Fetch posts from Worker (pure JS split — no AI timeout) ──
           let posts = [];
           try {
             const res  = await fetch(worker + '/ai', {
-              method:  'POST',
+              method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body:    JSON.stringify({ text })
+              body: JSON.stringify({ text }),
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Worker AI error ' + res.status);
+            if (!res.ok) throw new Error(data.error || 'Worker error ' + res.status);
             posts = data.posts || [];
-            console.log('Worker AI returned ' + posts.length + ' post(s)');
+            console.log('Worker returned ' + posts.length + ' post(s)');
           } catch(e) {
-            console.error('Worker AI error:', e.message);
+            console.error('Worker error:', e.message);
             process.exit(1);
           }
-          if (!posts.length) { console.error('No posts returned from Worker'); process.exit(1); }
-          
-          // ── Decode HTML entities the AI may output (e.g. &#128512; → 😀) ──
+          if (!posts.length) { console.error('No posts from Worker'); process.exit(1); }
+
+          // ── Helpers ──────────────────────────────────────────────────────
+          const cleanText = t => (t||'').replace(/\*\*/g,'').trim();
+
+          // Strip leading post numbers: "1." "1)" "(1)" "Post 1:" "第一：" etc.
+          function stripPostNumber(title) {
+            return (title||'')
+              .replace(/^\s*(?:post\s*)?\d+\s*[.:)\-]\s*/i, '')
+              .replace(/^\s*\(\d+\)\s*/,                     '')
+              .replace(/^\s*第\s*[\d一二三四五六七八九十百]+\s*[：:条篇部张节]\s*/u, '')
+              .replace(/^\s*[一二三四五六七八九十][、。：\s]/u, '')
+              .replace(/^\s*#+\s*/,                          '')
+              .trim();
+          }
+
+          // Decode HTML entities (e.g. &#128512; → 😀) the AI sometimes outputs
           function decodeEntities(str) {
             if (!str) return str;
             return str
               .replace(/&#(\d+);/g,           (_, n) => { try { return String.fromCodePoint(parseInt(n,10)); } catch { return ''; } })
               .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h,16)); } catch { return ''; } });
           }
+
+          // ── Normalise posts ──────────────────────────────────────────────
           posts = posts.map(p => ({
-            ...p,
-            title:   decodeEntities(p.title   || ''),
-            content: (p.content || []).map(l => decodeEntities(l || ''))
+            title:   decodeEntities(stripPostNumber(p.title   || '')),
+            content: (p.content || []).map(l => decodeEntities(l || '')),
           }));
-          
-          // ── Strip leading post numbers from titles (e.g. "1. Aries" → "Aries") ──
-          // Handles: "1." "1)" "(1)" "1、" "Post 1:" "第1课" "一、" etc.
-          function stripPostNum(t) {
-            return (t||'')
-              .replace(/^\s*(?:post|POST)\s*\d+\s*[.:\-]\s*/i, '')
-              .replace(/^\s*\(?\d+[.):\-、]\s*/,                '')
-              .replace(/^\s*第\s*\d+\s*[条节课章部]\s*/u,        '')
-              .replace(/^\s*[一二三四五六七八九十][、。：\s]/u,  '')
-              .trim();
-          }
-          posts = posts.map(p => ({ ...p, title: stripPostNum(p.title) }));
-          
-          // ══════════════════════════════════════════════════════════════
-          // BOLD — applied in render-image so it works even if AI missed it.
-          // Uses the 70B AI model output as primary source (**already in text**).
-          // This layer is a reliable fallback for zodiac/planet/number words
-          // that the AI might have missed, especially in multilingual content.
-          // ══════════════════════════════════════════════════════════════
-          const clean = t => (t||'').replace(/\*\*/g,'').trim();
-          const strip = t => (t||'').trim();
-          
-          // Zodiac signs — 14 languages
+
+          // ── Bold: zodiac / planet / key words ────────────────────────────
           const ZODIAC_WORDS = [
+            // English
             'Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces',
-            // Chinese
+            // Chinese (Simplified + Traditional)
             '白羊座','金牛座','双子座','巨蟹座','狮子座','处女座','天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座',
+            '牡羊座','雙子座','獅子座','處女座','天蠍座','雙魚座',
             // Japanese
-            '牡羊座','牡牛座','双子座','蟹座','獅子座','乙女座','天秤座','蠍座','射手座','山羊座','水瓶座','魚座',
+            '牡牛座','蟹座','乙女座','蠍座','山羊座','魚座',
             // Hindi/Marathi
             'मेष','वृषभ','मिथुन','कर्क','कर्कट','सिंह','कन्या','तुला','वृश्चिक','धनु','मकर','कुंभ','मीन',
             // Tamil
@@ -138,423 +134,261 @@ jobs:
             'ಮೇಷ','ವೃಷಭ','ಮಿಥುನ','ಕರ್ಕಾಟಕ','ಸಿಂಹ','ಕನ್ಯಾ','ತುಲಾ','ವೃಶ್ಚಿಕ','ಧನು','ಮಕರ','ಕುಂಭ','ಮೀನ',
             // Bengali
             'মেষ','বৃষভ','মিথুন','কর্কট','সিংহ','কন্যা','তুলা','বৃশ্চিক','ধনু','মকর','কুম্ভ','মীন',
-            // Gujarati
-            'મેષ','વૃષભ','મિથુન','કર્ક','સિંહ','કન્યા','તુલા','વૃશ્ચિક','ધન','મકર','કુંભ','મીન',
-            // Arabic
-            'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء','الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
             // German
             'Widder','Stier','Zwillinge','Krebs','Löwe','Jungfrau','Waage','Skorpion','Schütze','Steinbock','Wassermann','Fische',
-            // Spanish
-            'Aries','Tauro','Géminis','Cáncer','Virgo','Libra','Escorpio','Escorpión','Sagitario','Capricornio','Acuario','Piscis',
-            // French
-            'Bélier','Taureau','Gémeaux','Cancer','Vierge','Balance','Scorpion','Sagittaire','Capricorne','Verseau','Poissons',
+            // Spanish / French
+            'Tauro','Géminis','Cáncer','Sagitario','Capricornio','Acuario','Piscis',
+            'Bélier','Taureau','Gémeaux','Vierge','Balance','Scorpion','Sagittaire','Capricorne','Verseau','Poissons',
+            // Arabic
+            'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء','الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
           ];
-          
           const PLANET_WORDS = [
             'Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu','Uranus','Neptune','Pluto',
             'सूर्य','चंद्र','मंगल','बुध','गुरु','शुक्र','शनि','राहु','केतु',
             '太阳','月亮','火星','水星','木星','金星','土星',
-            'சூரியன்','சந்திரன்','செவ்வாய்','புதன்','குரு','சுக்கிரன்','சனி','ராகு','கேது',
-            'സൂര്യൻ','ചന്ദ്രൻ','ചൊവ്വ','ബുധൻ','ഗുരു','ശുക്രൻ','ശനി','രാഹു','കേതു',
-            'Sonne','Mond','Mars','Merkur','Jupiter','Venus','Saturn',
+            'Sonne','Mond','Merkur','Jupiter','Venus','Saturn',
             'الشمس','القمر','المريخ','عطارد','المشتري','الزهرة','زحل',
           ];
-          
           const _allSpecial = [...ZODIAC_WORDS, ...PLANET_WORDS]
-            .sort((a, b) => b.length - a.length)
-            .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+            .sort((a,b) => b.length - a.length)
+            .map(w => w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'));
           const SPECIAL_RE = new RegExp('(?<!\\*\\*)(' + _allSpecial.join('|') + ')(?!\\*\\*)', 'gu');
-          
-          const TIMING_RE = /(?<!\*\*)\b(Today|Tomorrow|Yesterday|Tonight|Now|Weekly|Daily|Monthly|Yearly|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Best|Worst|Special|Excellent|Good|Bad|Critical|Favorable|Unfavorable)\b(?!\*\*)/gi;
-          
-          function applyBold(title, content) {
-            function boldLine(t) {
-              if (!t) return t;
-              // Already has ** from AI — still apply fallback rules for missed words
-              t = t.replace(SPECIAL_RE, '**$1**');
-              t = t.replace(/(?<!\*)\b([A-Z]{3,})\b(?!\*)/g, '**$1**');
-              t = t.replace(/(?<!\*)\b(\d+(?:\.\d+)?\s*[%₹$€£]|[₹$€£]\s*\d+(?:\.\d+)?|\d+(?:st|nd|rd|th))\b(?!\*)/g, '**$1**');
-              t = t.replace(TIMING_RE, '**$1**');
-              // Clean any double-bold artifacts
-              t = t.replace(/\*{4}/g,'**').replace(/\*\*(\s+)\*\*/g,'$1');
-              return t;
-            }
-            return {
-              title:   boldLine(strip(title)),
-              content: content.map(l => l ? boldLine(l) : l)
-            };
-          }
-          
-          posts = posts.map(p => applyBold(p.title||'', p.content||[]));
+          const TIMING_RE  = /(?<!\*\*)\b(Today|Tomorrow|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Special|Excellent|Favorable|Unfavorable|Good|Bad|Critical|Best|Worst)\b(?!\*\*)/gi;
 
-          // ── Emoji ensure: if AI missed adding emoji to a line, add one based on content ──
-          // This is a guaranteed fallback so every line always has an emoji.
-          const EMOJI_RE_CHECK = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u;
-          
-          function topicEmoji(text) {
-            const t = (text||'').toLowerCase();
-            // Zodiac / astrology
-            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces/.test(t) ||
-                /मेष|वृषभ|मिथुन|कर्क|सिंह|कन्या|तुला|वृश्चिक|धनु|मकर|कुंभ|मीन/.test(t) ||
-                /白羊|金牛|双子|巨蟹|狮子|处女|天秤|天蝎|射手|摩羯|水瓶|双鱼/.test(t) ||
-                /zodiac|rashi|rashifal|horoscope|astro/.test(t)) return '🔮';
-            if (/lucky|luck|fortune|शुभ|吉|auspicious/.test(t)) return '🍀';
-            if (/warning|caution|alert|danger|beware|सावधान/.test(t)) return '⚠️';
-            if (/love|heart|romance|प्रेम|愛|liebe|amour/.test(t)) return '❤️';
-            if (/money|wealth|finance|earn|profit|धन|钱|geld/.test(t)) return '💰';
-            if (/health|fitness|body|स्वास्थ्य|健康|gesundheit/.test(t)) return '💪';
-            if (/career|job|work|business|profession|career|करियर|事業|karriere/.test(t)) return '💼';
-            if (/study|learn|education|पढ़|学习|lernen/.test(t)) return '📚';
-            if (/travel|journey|trip|यात्रा|旅行|reise/.test(t)) return '✈️';
-            if (/family|home|house|परिवार|家庭|familie/.test(t)) return '🏠';
-            if (/friend|relation|friendship|मित्र|友情|freund/.test(t)) return '🤝';
-            if (/sun|solar|surya|सूर्य|太阳|sonne/.test(t)) return '☀️';
-            if (/moon|lunar|chandra|चंद्र|月亮|mond/.test(t)) return '🌙';
-            if (/star|星|तारा|stern/.test(t)) return '⭐';
-            if (/fire|energy|passion|जोश|火|feuer/.test(t)) return '🔥';
-            if (/nature|flower|garden|प्रकृति|自然|natur/.test(t)) return '🌸';
-            if (/win|success|victory|विजय|成功|erfolg/.test(t)) return '🏆';
-            if (/good|great|excel|best|शुभ|好|gut/.test(t)) return '✨';
-            return '🌟'; // universal fallback
+          function applyBold(t) {
+            if (!t) return t;
+            t = t.replace(SPECIAL_RE, '**$1**');
+            t = t.replace(/(?<!\*)\b([A-Z]{3,})\b(?!\*)/g, '**$1**');
+            t = t.replace(/(?<!\*)\b(\d+(?:\.\d+)?\s*[%₹$€£]|[₹$€£]\s*\d+(?:\.\d+)?|\d+(?:st|nd|rd|th))\b(?!\*)/g, '**$1**');
+            t = t.replace(TIMING_RE, '**$1**');
+            t = t.replace(/\*{4}/g,'**').replace(/\*\*(\s+)\*\*/g,'$1');
+            return t;
           }
-          
-          posts = posts.map(p => {
-            function ensureEmoji(line) {
-              if (!line || !line.trim()) return line;
-              const cleaned = clean(line).trim();
-              if (!cleaned) return line;
-              // Check if last real character is already an emoji
-              const lastChar = [...cleaned].pop() || '';
-              if (EMOJI_RE_CHECK.test(lastChar)) return line; // already has emoji
-              // Add topic-relevant emoji
-              return line.trimEnd() + ' ' + topicEmoji(clean(line));
+
+          posts = posts.map(p => ({
+            title:   applyBold(p.title),
+            content: p.content.map(l => l ? applyBold(l) : l),
+          }));
+
+          // ── Emoji ensure: every non-empty line gets exactly one emoji ────
+          // KEY FIX: check if ANY emoji exists ANYWHERE in the line.
+          // If yes → leave line untouched (no duplicate emoji).
+          // If no  → append one relevant emoji at the end.
+          const HAS_EMOJI_ANYWHERE = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u;
+          function topicEmoji(t) {
+            const s = (t||'').toLowerCase();
+            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces|白羊|金牛|双子|巨蟹|狮子|处女|天秤|天蝎|射手|摩羯|水瓶|双鱼|मेष|वृषभ|मिथुन|कर्क|सिंह|zodiac|rashi|horoscope|rashifal/i.test(s)) return '🔮';
+            if (/lucky|luck|fortune|auspicious|शुभ|吉|भाग्य/i.test(s))  return '🍀';
+            if (/warning|caution|alert|danger|beware|सावधान|注意/i.test(s)) return '⚠️';
+            if (/love|heart|romance|प्रेम|愛|liebe|amour|relationship/i.test(s)) return '❤️';
+            if (/money|wealth|finance|earn|profit|धन|钱|geld|financial/i.test(s)) return '💰';
+            if (/health|fitness|body|स्वास्थ्य|健康|gesundheit/i.test(s)) return '💪';
+            if (/career|job|work|business|करियर|事業|karriere/i.test(s)) return '💼';
+            if (/study|learn|education|पढ़|学习|lernen|knowledge/i.test(s)) return '📚';
+            if (/travel|journey|trip|यात्रा|旅行|reise/i.test(s)) return '✈️';
+            if (/family|home|house|परिवार|家庭|familie/i.test(s)) return '🏠';
+            if (/sun|solar|surya|सूर्य|太阳|sonne/i.test(s)) return '☀️';
+            if (/moon|lunar|chandra|चंद्र|月亮|mond/i.test(s)) return '🌙';
+            if (/fire|energy|passion|जोश|火|feuer/i.test(s)) return '🔥';
+            if (/win|success|victory|विजय|成功|erfolg/i.test(s)) return '🏆';
+            if (/nature|flower|garden|प्रकृति|自然|natur/i.test(s)) return '🌸';
+            return '✨';
+          }
+          function ensureEmoji(line) {
+            if (!line || !line.trim()) return line;
+            const plain = cleanText(line);
+            // If line already has ANY emoji anywhere → don't add another
+            if (HAS_EMOJI_ANYWHERE.test(plain)) return line;
+            // No emoji at all → append one relevant emoji at the end
+            return line.trimEnd() + ' ' + topicEmoji(plain);
+          }
+          posts = posts.map(p => ({
+            title:   ensureEmoji(p.title),
+            content: p.content.map(l => ensureEmoji(l)),
+          }));
+
+          // ════════════════════════════════════════════════════════════════
+          // SVG RENDERER — based on reference implementation
+          // Uses system emoji font stack: no CDN, no PNG embeds, always works.
+          // Emoji are part of the text, rendered by 'Apple Color Emoji' etc.
+          // renderLine handles **bold** markers only — simple, clean, correct.
+          // ════════════════════════════════════════════════════════════════
+          const EMOJI_FONT = `'Apple Color Emoji','Noto Color Emoji','Segoe UI Emoji','Segoe UI Symbol'`;
+          const BASE_FONT  = `'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif,${EMOJI_FONT}`;
+
+          function xe(s) {
+            return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+          }
+
+          function parseBold(text) {
+            const segs = [], re = /\*\*(.*?)\*\*/g;
+            let last = 0, m;
+            while ((m = re.exec(text)) !== null) {
+              if (m.index > last) segs.push({ t: text.slice(last, m.index), bold: false });
+              if (m[1])           segs.push({ t: m[1], bold: true });
+              last = re.lastIndex;
             }
-            return {
-              title:   ensureEmoji(p.title),
-              content: p.content.map(l => ensureEmoji(l)),
-            };
-          });
-          
-          
-          // ══════════════════════════════════════════════════════════════
-          // EMOJI — rendered directly as SVG <text> using system emoji fonts
-          //
-          // STRATEGY: No external CDN. Emoji are Unicode characters placed in
-          // <text> nodes with font-family="'Noto Color Emoji','Apple Color Emoji',
-          // 'Segoe UI Emoji','Twemoji Mozilla',sans-serif".
-          // Every modern browser and OS has color emoji fonts built in.
-          // This is 100% reliable — no network calls, no CDN failures.
-          //
-          // sanitizeText() still strips residual codepoints from plain-text nodes
-          // so numbers/codes never appear raw in SVG.
-          // ══════════════════════════════════════════════════════════════
-          
-          // ══════════════════════════════════════════════════════════════
-          // EMOJI REGEX — only real emoji, NO broad BMP ranges.
-          //
-          // Root cause of "07/6/10" appearing:
-          //   The previous code added [U+2300-U+27BF] which includes circled
-          //   numbers ①-⑩ (U+2460-U+2469). AI uses these in lists. They got
-          //   matched as "emoji", rendered without emoji font → showed as digits.
-          //
-          // Fix: ONLY match characters that ARE proper emoji:
-          //   ZWJ sequences, flags, keycaps, emoji+VS16, Emoji_Presentation.
-          //   Zodiac BMP chars (♈-♓) WITHOUT VS16 are stripped by sanitizeText.
-          //   AI is instructed to use SMP emoji (🔮⭐) instead of BMP symbols.
-          // ══════════════════════════════════════════════════════════════
-          const EMOJI_RE = new RegExp(
-            '(?:' +
-            // ZWJ sequences (👨‍👩‍👧 etc.) — must be first, most specific
-            '\\p{Emoji}(?:\\uFE0F|[\\u{1F3FB}-\\u{1F3FF}])?(?:\\u200D(?:\\p{Emoji}(?:\\uFE0F|[\\u{1F3FB}-\\u{1F3FF}])?))+' +
-            // Flag pairs (🇮🇳 etc.)
-            '|[\\u{1F1E0}-\\u{1F1FF}]{2}' +
-            // Keycap sequences: digit/# /* + optional VS16 + U+20E3
-            '|[#*0-9]\\uFE0F?\\u20E3' +
-            // Any emoji + VS16 (forces emoji presentation: ☀️ ❤️ ⚠️ etc.)
-            '|\\p{Emoji}\\uFE0F(?:[\\u{1F3FB}-\\u{1F3FF}])?' +
-            // Default emoji-presentation (🔥⭐🌟 etc., no VS16 needed)
-            '|\\p{Emoji_Presentation}(?:[\\u{1F3FB}-\\u{1F3FF}])?' +
-            ')',
-            'gu'
-          );
-          
-          // Emoji font stack — for SVG <text> fallback when PNG not available
-          const EF = "'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji','Twemoji Mozilla',sans-serif";
-          
-          // ── Twemoji PNG via CDN ──
-          // SVG rendered as <img> is sandboxed — system emoji fonts unreliable.
-          // PNG embeds from CDN are the only cross-platform solution.
-          // Try both with-fe0f and without-fe0f filenames (Twemoji uses both).
-          // Try 3 CDNs per candidate. Add AbortController timeout (6s).
-          
-          function emojiToHex(emoji) {
-            return [...emoji]
-              .map(c => c.codePointAt(0))
-              .filter(cp =>
-                cp !== 0xFE0F &&
-                cp !== 0x200D &&
-                !(cp >= 0xE0000 && cp <= 0xE007F)
-              )
-              .map(cp => cp.toString(16))
-              .join('-');
+            if (last < text.length) segs.push({ t: text.slice(last), bold: false });
+            return segs.filter(s => s.t);
           }
-          
-          function emojiToHexFull(emoji) {
-            // Keep FE0F — Twemoji uses "2764-fe0f.png" for ❤️, "2600-fe0f.png" for ☀️ etc.
-            return [...emoji]
-              .map(c => c.codePointAt(0))
-              .filter(cp =>
-                cp !== 0x200D &&
-                !(cp >= 0xE0000 && cp <= 0xE007F)
-              )
-              .map(cp => cp.toString(16))
-              .join('-');
-          }
-          
-          // Strip residual emoji codepoints from plain text nodes.
-          // Characters matched by EMOJI_RE go through emoji path separately.
-          function sanitizeText(str) {
-            return [...str].filter(ch => {
-              const cp = ch.codePointAt(0);
-              if (cp > 0xFFFF)        return false; // non-BMP (SMP emoji)
-              if (cp === 0xFE0F)      return false; // variation selector-16
-              if (cp === 0x200D)      return false; // ZWJ
-              if (cp === 0x20E3)      return false; // combining enclosing keycap
-              if (cp >= 0xFE00 && cp <= 0xFE0F) return false; // variation selectors
-              // Strip BMP emoji/symbol ranges (zodiac ♈-♓, misc symbols, etc.)
-              // These can't render reliably in SVG — AI uses SMP emoji instead
-              if (cp >= 0x2600 && cp <= 0x27BF) return false; // misc symbols + dingbats
-              if (cp >= 0x2300 && cp <= 0x23FF) return false; // misc technical
-              if (cp >= 0x2B00 && cp <= 0x2BFF) return false; // misc symbols & arrows
-              if (cp >= 0x25A0 && cp <= 0x25FF) return false; // geometric shapes
-              if (cp >= 0x2190 && cp <= 0x21FF) return false; // arrows
-              return true;
+
+          // renderLine: bold-aware, emoji stays in text via font stack
+          // No CDN, no splitSegments, no complex emoji logic — clean and correct.
+          function renderLine(px, y, fs, fw, fill, rawText) {
+            const segs    = parseBold(rawText);
+            const hasBold = segs.some(s => s.bold);
+
+            if (!hasBold) {
+              return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(cleanText(rawText))}</text>`;
+            }
+            const spans = segs.map(s => {
+              const w = s.bold ? 900 : fw;
+              const c = s.bold ? '#FFFFFF' : fill;
+              return `<tspan font-weight="${w}" fill="${c}">${xe(s.t)}</tspan>`;
             }).join('');
+            return `<text x="${px}" y="${y}" font-family="${BASE_FONT}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${spans}</text>`;
           }
-          
-          const emojiCache = {};
-          
-          async function fetchWithTimeout(url, ms) {
-            const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), ms);
-            try {
-              const r = await fetch(url, { signal: ctrl.signal });
-              clearTimeout(t);
-              return r;
-            } catch(e) { clearTimeout(t); throw e; }
+
+          function isWide(ch) {
+            const cp = ch.codePointAt(0);
+            return (
+              cp >= 0x1F000 ||
+              (cp >= 0x2600  && cp <= 0x27FF) ||
+              (cp >= 0x4E00  && cp <= 0x9FFF) ||
+              (cp >= 0x3400  && cp <= 0x4DBF) ||
+              (cp >= 0x20000 && cp <= 0x2FA1F)||
+              (cp >= 0x3040  && cp <= 0x30FF) ||
+              (cp >= 0xAC00  && cp <= 0xD7AF) ||
+              (cp >= 0xFF00  && cp <= 0xFFEF) ||
+              (cp >= 0x3000  && cp <= 0x303F) ||
+              (cp >= 0x3200  && cp <= 0x33FF)
+            );
           }
-          
-          async function getEmojiPng(emoji) {
-            const hexStrip = emojiToHex(emoji);      // without FE0F: "2764"
-            const hexFull  = emojiToHexFull(emoji);  // with FE0F:    "2764-fe0f"
-            
-            if (hexStrip in emojiCache) return emojiCache[hexStrip];
-            
-            // Build all candidate filenames to try (order matters: most specific first)
-            const hexCandidates = [...new Set([hexFull, hexStrip])];
-            const parts = hexStrip.split('-');
-            if (parts.length > 2) hexCandidates.push(parts.slice(0,2).join('-'));
-            if (parts.length > 1) hexCandidates.push(parts[0]);
-            
-            // Three CDN sources
-            const cdnFns = [
-              h => `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${h}.png`,
-              h => `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${h}.png`,
-              h => `https://unpkg.com/twemoji@14.0.2/assets/72x72/${h}.png`,
-            ];
-            
-            for (const hx of hexCandidates) {
-              for (const cdnFn of cdnFns) {
-                try {
-                  const r = await fetchWithTimeout(cdnFn(hx), 6000);
-                  if (!r.ok) continue;
-                  const buf = await r.arrayBuffer();
-                  if (!buf.byteLength) continue;
-                  const b64 = Buffer.from(buf).toString('base64');
-                  emojiCache[hexStrip] = `data:image/png;base64,${b64}`;
-                  return emojiCache[hexStrip];
-                } catch {}
-              }
+          function charVisLen(str) {
+            let n = 0;
+            for (const ch of [...(str||'')]) n += isWide(ch) ? 2 : 1;
+            return n;
+          }
+
+          function wrapLatin(text, cpl) {
+            const words = text.split(' '), lines = [];
+            let cur = '', curLen = 0;
+            for (const word of words) {
+              const wLen = charVisLen(cleanText(word));
+              const sep  = cur ? 1 : 0;
+              if (curLen + sep + wLen > cpl && cur) { lines.push(cur); cur = word; curLen = wLen; }
+              else { cur = cur ? `${cur} ${word}` : word; curLen += sep + wLen; }
             }
-            
-            emojiCache[hexStrip] = null;
-            console.log('No PNG for emoji: ' + emoji + ' (' + hexStrip + ')');
-            return null;
+            if (cur) lines.push(cur);
+            return lines.length ? lines : [''];
           }
-          
-          // Pre-fetch all emoji — sequential with small delay to avoid rate-limiting
-          const allEmoji = new Set();
-          for (const p of posts) {
-            const all = [p.title, ...(p.content||[])].filter(Boolean).join('\n');
-            for (const m of all.matchAll(EMOJI_RE)) allEmoji.add(m[0]);
-          }
-          if (allEmoji.size > 0) {
-            console.log('Fetching ' + allEmoji.size + ' emoji…');
-            for (const e of allEmoji) {
-              await getEmojiPng(e);
-              await new Promise(r => setTimeout(r, 80)); // small delay, not all parallel
+
+          function wrapCJK(text, cpl) {
+            const lines = []; let curRaw = '', curLen = 0, inBold = false;
+            const chars = [...text]; let i = 0;
+            while (i < chars.length) {
+              if (chars[i] === '*' && chars[i+1] === '*') { curRaw += '**'; inBold = !inBold; i += 2; continue; }
+              const ch = chars[i], chLen = isWide(ch) ? 2 : 1;
+              if (curLen + chLen > cpl && cleanText(curRaw).length > 0) {
+                if (inBold) curRaw += '**';
+                lines.push(curRaw);
+                curRaw = inBold ? '**' + ch : ch; curLen = chLen;
+              } else { curRaw += ch; curLen += chLen; }
+              i++;
             }
-            const ok = Object.values(emojiCache).filter(Boolean).length;
-            console.log('Emoji PNG ready: ' + ok + '/' + allEmoji.size);
+            if (cleanText(curRaw)) lines.push(curRaw);
+            return lines.length ? lines : [''];
           }
-          
-          // Split a string into {type:'text'|'emoji'} segments
-          function splitSegments(str) {
-            const segs = []; let last = 0;
-            for (const m of str.matchAll(EMOJI_RE)) {
-              if (m.index > last) segs.push({ type:'text',  val: str.slice(last, m.index) });
-              segs.push({ type:'emoji', val: m[0] });
-              last = m.index + m[0].length;
+
+          function smartWrap(text, cpl) {
+            if (!text) return [''];
+            const plain = cleanText(text);
+            const wideCount  = [...plain].filter(isWide).length;
+            const spaceCount = (plain.match(/ /g)||[]).length;
+            const isCJK = wideCount > plain.length * 0.3 || (wideCount > 2 && spaceCount < 2);
+            return isCJK ? wrapCJK(text, cpl) : wrapLatin(text, cpl);
+          }
+
+          async function makeSVG(post) {
+            const W = 1080, H = 1920, PX = 110, PY = 130;
+            const CW = W - PX * 2, BOTTOM = H - PY;
+
+            const rawTitle = (post.title  || '').trim();
+            const content  = (post.content|| []);
+            const visLen   = charVisLen(cleanText(rawTitle)) + charVisLen(content.map(l=>cleanText(l||'')).join(''));
+
+            let ts, bs, tlh, blh, gap;
+            if      (visLen < 80)  { ts=96; bs=62; tlh=134; blh=90; gap=76; }
+            else if (visLen < 150) { ts=86; bs=55; tlh=120; blh=82; gap=68; }
+            else if (visLen < 260) { ts=74; bs=49; tlh=104; blh=72; gap=58; }
+            else if (visLen < 420) { ts=65; bs=44; tlh= 92; blh=64; gap=50; }
+            else if (visLen < 620) { ts=55; bs=40; tlh= 80; blh=58; gap=44; }
+            else if (visLen < 900) { ts=48; bs=35; tlh= 70; blh=50; gap=36; }
+            else                   { ts=41; bs=31; tlh= 60; blh=44; gap=32; }
+
+            const tCPL = Math.floor(CW / (ts * 0.50));
+            const bCPL = Math.floor(CW / (bs * 0.50));
+
+            const titleLines = smartWrap(rawTitle, tCPL);
+            const bodyLines  = [];
+            for (const line of content) {
+              if (!cleanText(line||'')) { bodyLines.push({ raw:'', gap:true }); }
+              else { for (const w of smartWrap(line, bCPL)) bodyLines.push({ raw:w, gap:false }); }
             }
-            if (last < str.length) segs.push({ type:'text', val: str.slice(last) });
-            return segs.filter(s => s.val);
-          }
-          
-                    // ══════════════════════════════════════════════════════════════
-          // SVG RENDERER
-          // ══════════════════════════════════════════════════════════════
-          const BF  = "'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif";
-          const xe  = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-          const isWide  = ch => { const cp=ch.codePointAt(0); return cp>=0x1F000||(cp>=0x4E00&&cp<=0x9FFF)||(cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF); };
-          const charLen = s => { let n=0; for(const c of [...(s||'')]) n+=isWide(c)?2:1; return n; };
-          const estW    = (str, fs) => { let w=0; for(const ch of [...str]) w+=isWide(ch)?fs:fs*0.52; return w; };
-          
-          function parseBold(t) {
-            const segs=[],re=/\*\*(.*?)\*\*/g; let last=0,m;
-            while((m=re.exec(t))!==null){ if(m.index>last)segs.push({t:t.slice(last,m.index),b:false}); if(m[1])segs.push({t:m[1],b:true}); last=re.lastIndex; }
-            if(last<t.length)segs.push({t:t.slice(last),b:false}); return segs.filter(s=>s.t);
-          }
-          function wrapLatin(txt,cpl) {
-            const ws=txt.split(' '),lines=[]; let cur='',curL=0;
-            for(const w of ws){ const wl=charLen(clean(w)),sep=cur?1:0; if(curL+sep+wl>cpl&&cur){lines.push(cur);cur=w;curL=wl;}else{cur=cur?cur+' '+w:w;curL+=sep+wl;} }
-            if(cur)lines.push(cur); return lines.length?lines:[''];
-          }
-          function wrapCJK(txt,cpl) {
-            const lines=[]; let raw='',len=0,inB=false; const chars=[...txt]; let i=0;
-            while(i<chars.length){ if(chars[i]==='*'&&chars[i+1]==='*'){raw+='**';inB=!inB;i+=2;continue;} const ch=chars[i],cl=isWide(ch)?2:1; if(len+cl>cpl&&clean(raw).length>0){if(inB)raw+='**';lines.push(raw);raw=inB?'**'+ch:ch;len=cl;}else{raw+=ch;len+=cl;} i++; }
-            if(clean(raw))lines.push(raw); return lines.length?lines:[''];
-          }
-          function smartWrap(txt,cpl) { if(!txt)return['']; const p=clean(txt),sp=(p.match(/ /g)||[]).length,wc=[...p].filter(isWide).length; return (wc>p.length*.3||(wc>2&&sp<2))?wrapCJK(txt,cpl):wrapLatin(txt,cpl); }
-          
-          // ══════════════════════════════════════════════════════════════
-          // renderLine — bold + emoji, PNG-first with font fallback
-          //
-          // For each line:
-          //   1. parseBold()     → [{t, b:bool}] from ** markers
-          //   2. For each chunk: splitSegments() → text or emoji pieces
-          //   3. Emoji: use embedded PNG if CDN succeeded, else SVG text
-          //      with emoji font stack (works in modern browsers)
-          //   4. Text: sanitized, bold-weight and fill applied correctly
-          // ══════════════════════════════════════════════════════════════
-          function renderLine(px, y, fs, fw, fill, raw) {
-            const boldSegs = parseBold(raw);
-            const hasBold  = boldSegs.some(s => s.b);
-            const hasEmoji = boldSegs.some(s => splitSegments(s.t).some(sg => sg.type === 'emoji'));
-          
-            // ── No emoji: fast path ──
-            if (!hasEmoji) {
-              if (!hasBold) {
-                return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(sanitizeText(clean(raw)))}</text>`;
-              }
-              const sp = boldSegs.map(s =>
-                `<tspan font-weight="${s.b?900:fw}" fill="${s.b?'#FFFFFF':fill}">${xe(sanitizeText(s.t))}</tspan>`
-              ).join('');
-              return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${sp}</text>`;
+
+            const titleH = titleLines.length * tlh;
+            const bodyH  = bodyLines.reduce((s,l) => s + (l.gap ? blh*0.5 : blh), 0);
+            const totalH = titleH + (bodyLines.length ? gap + bodyH : 0);
+            let y = totalH > (H - PY*2)
+              ? PY + ts
+              : Math.max(PY + ts, Math.round((H - totalH) / 2) + ts);
+
+            const els = [];
+
+            for (const line of titleLines) {
+              if (y > BOTTOM + ts) break;
+              els.push(renderLine(PX, y, ts, 800, '#FFFFFF', line));
+              y += tlh;
             }
-          
-            // ── Has emoji: render piece by piece ──
-            const eSize = Math.round(fs * 1.12);
-            const eTop  = y - Math.round(fs * 0.85); // top-left Y for <image>
-            const parts = [];
-            let   xCur  = px;
-          
-            for (const bseg of boldSegs) {
-              const segFw   = bseg.b ? 900 : fw;
-              const segFill = bseg.b ? '#FFFFFF' : fill;
-              const subSegs = splitSegments(bseg.t);
-          
-              for (const ss of subSegs) {
-                if (ss.type === 'emoji') {
-                  const hexKey = emojiToHex(ss.val);
-                  const uri    = emojiCache[hexKey];
-          
-                  if (uri) {
-                    // ✅ PNG from CDN — best quality, works everywhere
-                    parts.push(
-                      `<image x="${Math.round(xCur)}" y="${eTop}" ` +
-                      `width="${eSize}" height="${eSize}" ` +
-                      `xlink:href="${uri}" href="${uri}" ` +
-                      `preserveAspectRatio="xMidYMid meet"/>`
-                    );
-                    xCur += eSize + 3;
-                  } else {
-                    // ⚠️ CDN failed — render as SVG text with emoji font.
-                    // Works in modern browsers (Chrome/Safari/Firefox all have emoji fonts).
-                    // Better than showing a box or bullet.
-                    const safeE = xe(ss.val);
-                    parts.push(
-                      `<text x="${Math.round(xCur)}" y="${y}" ` +
-                      `font-family="${EF}" font-size="${eSize}" ` +
-                      `xml:space="preserve">${safeE}</text>`
-                    );
-                    xCur += eSize + 2;
-                  }
-                } else {
-                  const safeVal = sanitizeText(ss.val);
-                  if (!safeVal) continue;
-                  parts.push(
-                    `<text x="${Math.round(xCur)}" y="${y}" ` +
-                    `font-family="${BF}" font-size="${fs}" ` +
-                    `font-weight="${segFw}" fill="${segFill}" ` +
-                    `xml:space="preserve">${xe(safeVal)}</text>`
-                  );
-                  xCur += estW(safeVal, fs);
-                }
-              }
+
+            if (bodyLines.length) {
+              const ay = y + Math.round(gap * 0.28);
+              if (ay < BOTTOM)
+                els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);
+              y += gap;
             }
-            return parts.join('');
+
+            for (const line of bodyLines) {
+              if (!line.gap && y > BOTTOM + bs) break;
+              if (!line.gap) els.push(renderLine(PX, y, bs, 400, 'rgba(255,255,255,0.85)', line.raw));
+              y += line.gap ? Math.round(blh * 0.5) : blh;
+            }
+
+            return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">
+    <stop offset="0%"   stop-color="#06020f"/>
+    <stop offset="55%"  stop-color="#080412"/>
+    <stop offset="100%" stop-color="#00091a"/>
+  </linearGradient>
+  <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>
+</defs>
+<rect width="${W}" height="${H}" fill="url(#bg)"/>
+<g clip-path="url(#clip)">
+${els.join('\n')}
+</g>
+</svg>`;
           }
-          
-                    async function makeSVG(post) {
-            const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOT=H-PY;
-            const rawTitle=(post.title||'').trim(), content=post.content||[];
-            const vL=charLen(clean(rawTitle))+charLen(content.map(l=>clean(l||'')).join(''));
-            let ts,bs,tlh,blh,gap;
-            if(vL<80)       {ts=96;bs=62;tlh=134;blh=90; gap=76;}
-            else if(vL<150) {ts=86;bs=55;tlh=120;blh=82; gap=68;}
-            else if(vL<260) {ts=74;bs=49;tlh=104;blh=72; gap=58;}
-            else if(vL<420) {ts=65;bs=44;tlh=92; blh=64; gap=50;}
-            else if(vL<620) {ts=55;bs=40;tlh=80; blh=58; gap=44;}
-            else if(vL<900) {ts=48;bs=35;tlh=70; blh=50; gap=36;}
-            else            {ts=41;bs=31;tlh=60; blh=44; gap=32;}
-            const tCPL=Math.floor(CW/(ts*.50)), bCPL=Math.floor(CW/(bs*.50));
-            const tLines=smartWrap(rawTitle,tCPL);
-            const bLines=[];
-            for(const line of content){ const r=line||''; if(!clean(r)){bLines.push({raw:'',gap:true});}else{for(const w of smartWrap(r,bCPL))bLines.push({raw:w,gap:false});} }
-            const tH=tLines.length*tlh, bH=bLines.reduce((s,l)=>s+(l.gap?blh*.5:blh),0), totH=tH+(bLines.length?gap+bH:0);
-            let y=totH>(H-PY*2)?PY+ts:Math.max(PY+ts,Math.round((H-totH)/2)+ts);
-            const els=[];
-            for(const line of tLines){if(y>BOT+ts)break;els.push(renderLine(PX,y,ts,800,'#FFFFFF',line));y+=tlh;}
-            if(bLines.length){const ay=y+Math.round(gap*.28);if(ay<BOT)els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(124,109,255,0.7)"/>`);y+=gap;}
-            for(const line of bLines){if(!line.gap&&y>BOT+bs)break;if(!line.gap)els.push(renderLine(PX,y,bs,400,'rgba(255,255,255,0.82)',line.raw));y+=line.gap?Math.round(blh*.5):blh;}
-            return '<?xml version="1.0" encoding="UTF-8"?>'
-              +`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`
-              +'<defs>'
-              +`<clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>`
-              +'</defs>'
-              +`<rect width="${W}" height="${H}" fill="#000000"/>`
-              +`<g clip-path="url(#clip)">${els.join('')}</g>`
-              +'</svg>';
-          }
-          
-          // ── Build results — incremental writes so UI shows images one by one ──
+
+          // ── Write results incrementally ───────────────────────────────────
           const dir = 'api/status';
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          
+
           const results = [];
           for (let i = 0; i < posts.length; i++) {
             const svg = await makeSVG(posts[i]);
-            results.push({ title: clean(posts[i].title), content: posts[i].content, svg });
+            results.push({ title: cleanText(posts[i].title), svg });
             const isLast = i === posts.length - 1;
             fs.writeFileSync(`${dir}/${jobId}.json`, JSON.stringify({
               jobId, deviceId,
@@ -562,13 +396,13 @@ jobs:
               template:  'imggen',
               total:     posts.length,
               done:      i + 1,
-              label:     clean(posts[0]?.title || 'Session').slice(0, 80),
+              label:     cleanText(posts[0]?.title || 'Session').slice(0, 80),
               timestamp: Date.now(),
-              results:   results.map(r => ({ title: r.title, svg: r.svg, content: r.content }))
+              results:   results.map(r => ({ title: r.title, svg: r.svg })),
             }));
-            console.log(`Image ${i + 1} / ${posts.length} written`);
+            console.log(`Image ${i+1}/${posts.length} written`);
           }
-          console.log('All done: ' + results.length + ' image(s)');
+          console.log('Done: ' + results.length + ' image(s)');
           JSEOF
 
       - name: Run generator
