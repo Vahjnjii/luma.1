@@ -1503,7 +1503,7 @@ function xe(s)  { return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').repla
 function msgs() { return $('ch-msgs'); }
 function hideEmpty(){ const e=$('ch-empty');if(e)e.style.display='none'; }
 function clearChat(){
-  const m=msgs();m.innerHTML='';_seen=0;
+  const m=msgs();m.innerHTML='';
   const e=document.createElement('div');e.className='ch-empty';e.id='ch-empty';
   e.innerHTML='<div class="ch-empty-icon">✨</div><div class="ch-empty-title">Ready to create</div><div class="ch-empty-sub">Paste your content below and hit send.</div>';
   m.appendChild(e);
