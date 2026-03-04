@@ -364,21 +364,24 @@ jobs:
               y += line.gap ? Math.round(blh * 0.5) : blh;
             }
 
-            return `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-<defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">
-    <stop offset="0%"   stop-color="#06020f"/>
-    <stop offset="55%"  stop-color="#080412"/>
-    <stop offset="100%" stop-color="#00091a"/>
-  </linearGradient>
-  <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>
-</defs>
-<rect width="${W}" height="${H}" fill="url(#bg)"/>
-<g clip-path="url(#clip)">
-${els.join('\n')}
-</g>
-</svg>`;
+            const svgParts = [
+              '<?xml version="1.0" encoding="UTF-8"?>',
+              `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`,
+              '<defs>',
+              `  <linearGradient id="bg" x1="0" y1="0" x2="${W}" y2="${H}" gradientUnits="userSpaceOnUse">`,
+              '  <stop offset="0%"   stop-color="#06020f"/>',
+              '  <stop offset="55%"  stop-color="#080412"/>',
+              '  <stop offset="100%" stop-color="#00091a"/>',
+              '  </linearGradient>',
+              `  <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>`,
+              '</defs>',
+              `<rect width="${W}" height="${H}" fill="url(#bg)"/>`,
+              '<g clip-path="url(#clip)">',
+              ...els,
+              '</g>',
+              '</svg>',
+            ];
+            return svgParts.join('\n');
           }
 
           // ── Write results incrementally ───────────────────────────────────
