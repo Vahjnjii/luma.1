@@ -502,6 +502,65 @@ body::before{
   box-shadow:0 8px 32px rgba(0,0,0,.7);animation:fadeUp .2s ease both;
   max-width:calc(100vw - 40px);
 }
+
+/* Google button */
+.btn-google{
+  width:100%;background:rgba(255,255,255,.05);border:1px solid var(--bd);
+  border-radius:var(--r12);padding:13px 16px;color:var(--tx);font-size:15px;font-weight:600;
+  font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .2s;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+}
+.btn-google:hover{background:rgba(255,255,255,.09);border-color:var(--bdh);transform:translateY(-1px)}
+.btn-google:active{transform:scale(.97)}
+.btn-google:disabled{opacity:.5;cursor:wait;transform:none}
+.btn-divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--tx3);font-size:12px}
+.btn-divider::before,.btn-divider::after{content:'';flex:1;height:1px;background:var(--bd)}
+
+/* Session Stack Bar */
+@keyframes chipIn{from{opacity:0;transform:scale(.85) translateY(-4px)}to{opacity:1;transform:scale(1)}}
+#session-bar{
+  position:fixed;top:0;left:0;right:0;z-index:200;
+  display:none;
+  background:rgba(3,3,8,.96);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--bd);
+  padding:7px 10px;
+  flex-direction:row;align-items:center;gap:6px;
+  overflow-x:auto;overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+}
+#session-bar::-webkit-scrollbar{height:0}
+#session-bar.visible{display:flex}
+.sess-chip{
+  flex-shrink:0;
+  display:flex;align-items:center;gap:6px;
+  background:rgba(255,255,255,.04);border:1px solid var(--bd);
+  border-radius:var(--r8);padding:5px 9px;cursor:pointer;
+  transition:all .18s;min-width:120px;max-width:170px;
+  animation:chipIn .25s cubic-bezier(.16,1,.3,1) both;
+}
+.sess-chip:hover{background:rgba(255,255,255,.07);border-color:var(--bdh)}
+.sess-chip.active-chip{border-color:rgba(124,109,255,.5);background:rgba(124,109,255,.09)}
+.sess-chip-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sess-chip-dot.gen{background:var(--yw);animation:pulse-ring 1.5s ease infinite}
+.sess-chip-dot.done{background:var(--gn)}
+.sess-chip-dot.err{background:var(--rd)}
+.sess-chip-dot.queued{background:var(--tx3)}
+.sess-chip-label{font-size:11px;font-weight:600;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.sess-chip-count{font-size:10px;font-weight:700;color:var(--tx3);flex-shrink:0;background:rgba(255,255,255,.05);border-radius:4px;padding:1px 5px}
+.queue-pill{flex-shrink:0;display:flex;align-items:center;gap:5px;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.18);border-radius:var(--r8);padding:5px 9px;font-size:11px;font-weight:700;color:var(--yw);white-space:nowrap}
+
+/* bar open offset */
+#screen-chat.bar-open .ch-msgs{padding-top:52px}
+
+/* History prompt line */
+.hist-item-prompt{font-size:12px;font-weight:600;color:var(--acc3);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic}
+
+/* so-email */
+.so-email{font-size:11px;color:var(--tx3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* user photo */
+.user-pill-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+
 </style>
 </head>
 <body>
@@ -516,17 +575,20 @@ body::before{
   <div class="login-wrap">
     <div class="login-logo">L</div>
     <div class="login-title">LUMA</div>
-    <div class="login-sub">AI Content Studio · Free · GitHub-powered</div>
+    <div class="login-sub">Sign in with Google to start creating</div>
     <div class="login-card">
-      <div class="field-label">Your name</div>
-      <input id="login-name" class="field-input" type="text" placeholder="Enter your name" autocomplete="name">
-      <button class="btn-primary" onclick="doLogin()">Get started →</button>
+      <button class="btn-google" id="btn-google" onclick="doGoogleLogin()">
+        <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:18px;flex-shrink:0">
+          <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+          <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.909-2.259c-.806.54-1.836.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
+          <path d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+          <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+        </svg>
+        Continue with Google
+      </button>
       <div id="login-err" class="login-err"></div>
     </div>
-    <div class="login-note">
-      Powered by GitHub Actions &amp; Pages. 100% free.<br>
-      <a href="https://github.com/settings/tokens" target="_blank">Generate GitHub token</a> · <a href="#" onclick="showSetup()">Setup guide</a>
-    </div>
+    <div class="login-note">Powered by GitHub Actions &amp; Pages · 100% free</div>
   </div>
 </div>
 
@@ -595,10 +657,14 @@ body::before{
 <div class="so-menu" id="so-menu">
   <div class="so-info">
     <div class="so-name" id="so-name"></div>
-    <div class="so-hint">Local session only</div>
+    <div class="so-email" id="so-email">Local session</div>
   </div>
   <button class="so-btn" onclick="signOut()"><i class="fas fa-right-from-bracket"></i> Sign out</button>
 </div>
+
+
+<!-- SESSION STACK BAR -->
+<div id="session-bar"></div>
 
 <!-- ╔══════════════════════════════════════╗ -->
 <!-- ║            CHAT SCREEN              ║ -->
@@ -655,6 +721,90 @@ body::before{
 <!-- Toast -->
 <div id="toast" class="toast" style="display:none"></div>
 
+<!-- Google Identity Services (Google Cloud OAuth) -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+// Google Client ID is fetched from Cloudflare Worker at runtime
+// Add GOOGLE_CLIENT_ID secret in Cloudflare Worker dashboard — never hardcode here
+let GOOGLE_CLIENT_ID = null;
+
+// Fetch Google Client ID from Cloudflare Worker /config endpoint
+// The worker reads it from its secret env var GOOGLE_CLIENT_ID
+async function loadGoogleConfig() {
+  try {
+    // CFG.worker is defined in the main script below — we poll until it's ready
+    const workerUrl = (typeof CFG !== 'undefined' ? CFG.worker : null)
+      || document.querySelector('script[data-worker]')?.dataset?.worker;
+    if (!workerUrl || workerUrl.includes('YOUR_WORKER')) return;
+    const r = await fetch(workerUrl + '/config');
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.google_client_id) {
+      GOOGLE_CLIENT_ID = data.google_client_id;
+      console.log('✓ Google config loaded from Worker');
+    }
+  } catch(e) {
+    console.warn('Could not load Google config from Worker:', e.message);
+  }
+}
+
+// Auto-load config after page loads (waits for CFG to be defined)
+window.addEventListener('load', () => setTimeout(loadGoogleConfig, 500));
+
+window._doGoogleLoginFb = function() {
+  const e = document.getElementById('login-err');
+  if (!GOOGLE_CLIENT_ID) {
+    e.textContent = 'Loading Google config… please try again in a moment.';
+    e.style.display = 'block';
+    loadGoogleConfig(); // retry fetch
+    return;
+  }
+  if (!window.google || !window.google.accounts) {
+    e.textContent = 'Google sign-in library not loaded. Check your internet connection.';
+    e.style.display = 'block';
+    return;
+  }
+  window.google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: 'openid email profile',
+    callback: function(resp) {
+      if (resp.error) {
+        e.textContent = 'Sign-in failed: ' + resp.error;
+        e.style.display = 'block';
+        return;
+      }
+      // Get user info from Google
+      fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: 'Bearer ' + resp.access_token }
+      })
+      .then(r => r.json())
+      .then(profile => {
+        const u = {
+          name:   profile.name || profile.email.split('@')[0],
+          email:  profile.email,
+          id:     'g_' + profile.sub.slice(0,12),
+          photo:  profile.picture || null,
+          ts:     Date.now(),
+          method: 'google'
+        };
+        window._lumaSetUser(u);
+      })
+      .catch(err => {
+        e.textContent = 'Failed to get profile: ' + err.message;
+        e.style.display = 'block';
+      });
+    }
+  }).requestAccessToken();
+};
+
+window._doFbSignOut = function() {
+  if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+    try { window.google.accounts.oauth2.revoke(); } catch(e) {}
+  }
+};
+</script>
+
+
 <script>'use strict';
 
 /* ═══════════════════════════════════════════════════════════
@@ -685,42 +835,76 @@ const RAW = `https://raw.githubusercontent.com/Vahjnjii/luma.1/main/api/status`;
 const API = 'https://api.github.com';
 
 /* ═══ STATE ═══ */
-let _user = null, _tpl = 'imggen', _poll = null, _seen = 0;
+let _user  = null;
+let _tpl   = 'imggen';
 const _svgs = {}, _titles = {}, _pngs = {};
-const LS_U = 'luma_v2_user', LS_H = 'luma_v2_hist';
+const LS_U = 'luma_v3_user';
+
+// Per-user localStorage key prefix — all data isolated by user ID
+function uKey(s){ return _user ? 'luma_'+_user.id+'_'+s : 'luma_anon_'+s; }
+
+/*
+ * SESSION QUEUE
+ * MAX_ACTIVE = 6 concurrent, rest queued (FIFO)
+ * Each session: { jobId, prompt, label, tpl, ts, status, done, total, seenCount, pollInterval, vidDuration, videoUrl, errorMsg }
+ * status: 'queued' | 'generating' | 'done' | 'error'
+ */
+const MAX_ACTIVE = 6;
+let _sessions    = [];   // runtime list (also persisted)
+let _activeJobId = null; // which session is visible in chat
 
 /* ═══════════════════════════════════════════════════════════
    AUTH & LOGIN
    ═══════════════════════════════════════════════════════════ */
-function doLogin() {
-  const n = $('login-name').value.trim();
-  const e = $('login-err');
-  if (!n) { showErr(e, 'Please enter your name.'); return; }
-  if (!CFG.worker || CFG.worker.includes('YOUR_WORKER')) {
-    showErr(e, '⚠️ Setup required: Add your Cloudflare Worker URL to CFG.worker in index.html. See README for help.');
-    return;
-  }
-  e.style.display = 'none';
-  const u = { name: n, id: 'u' + Math.random().toString(36).slice(2,10), ts: Date.now() };
-  ls(LS_U, u);
-  _user = u;
-  enterApp();
+function doGoogleLogin(){
+  if(window._doGoogleLoginFb) window._doGoogleLoginFb();
+  else { showErr($('login-err'),'⚠️ Firebase not configured. Add your Firebase config to FIREBASE_CFG in index.html.'); }
 }
+
+// Name login removed — Google login only
+
+window._lumaUser = null;
+window._lumaSetUser = function(u) {
+  _user = u;
+  window._lumaUser = u;
+  try { localStorage.setItem(LS_U, JSON.stringify(u)); } catch {}
+  enterApp();
+};
 
 function enterApp() {
   const n = _user.name.split(' ')[0];
   $('user-name-nav').textContent = n;
-  $('user-av').textContent = n[0].toUpperCase();
-  $('so-name').textContent = _user.name;
+  // Avatar: Google photo or initial
+  const wrap = $('user-av');
+  if(_user.photo){
+    const initial=n[0].toUpperCase();
+    const img=document.createElement('img');
+    img.src=_user.photo;img.alt=initial;
+    img.style.cssText='width:100%;height:100%;border-radius:50%;object-fit:cover';
+    img.onerror=function(){this.style.display='none';this.parentNode.textContent=initial;};
+    wrap.innerHTML='';wrap.appendChild(img);
+  } else {
+    wrap.textContent = n[0].toUpperCase();
+  }
+  $('so-name').textContent  = _user.name;
+  $('so-email').textContent = _user.email || '';
   const h = new Date().getHours();
   $('greet').textContent = `${h<12?'Good morning':h<17?'Good afternoon':'Good evening'}, ${n} 👋`;
+  _sessions = loadSessions();
+  // Re-attach polling for generating sessions after refresh
+  _sessions.forEach(s => { if(s.status==='generating') startPolling(s.jobId); });
+  renderSessionBar();
   show('templates');
 }
 
 function signOut() {
-  localStorage.removeItem(LS_U);
-  _user = null;
+  _sessions.forEach(s=>{ if(s.pollInterval){clearInterval(s.pollInterval);s.pollInterval=null;} });
+  _sessions=[];
   $('so-menu').classList.remove('open');
+  if(window._doFbSignOut) window._doFbSignOut();
+  try { localStorage.removeItem(LS_U); } catch {}
+  _user=null; window._lumaUser=null; _activeJobId=null;
+  renderSessionBar();
   show('login');
 }
 function toggleSO() { $('so-menu').classList.toggle('open'); }
@@ -730,12 +914,7 @@ document.addEventListener('click', e => {
     m.classList.remove('open');
 });
 
-function showSetup() {
-  showErr($('login-err'),
-    'Setup: 1) Fork this repo. 2) Add secrets: GH_PAT, GROQ_API_KEY. 3) Enable GitHub Pages (Settings → Pages → main / root). 4) Edit CFG in index.html with your username, repo, and token. 5) Create Issue #1.',
-    true
-  );
-}
+
 
 /* ═══════════════════════════════════════════════════════════
    GITHUB API
@@ -781,13 +960,124 @@ async function pollStatus(jobId) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   HISTORY
+   SESSION PERSISTENCE + HISTORY
    ═══════════════════════════════════════════════════════════ */
-function getHist()     { try { return JSON.parse(localStorage.getItem(LS_H)||'[]'); } catch { return []; } }
-function setHist(h)    { try { localStorage.setItem(LS_H, JSON.stringify(h.slice(0,50))); } catch {} }
+
+// Sessions (runtime + persisted)
+function sessKey(){ return uKey('sessions'); }
+function loadSessions(){ try{return JSON.parse(localStorage.getItem(sessKey())||'[]');}catch{return[];} }
+function saveSessions(){ const save=_sessions.map(({pollInterval,...r})=>r); try{localStorage.setItem(sessKey(),JSON.stringify(save.slice(0,100)));}catch{} }
+function getSession(jid){ return _sessions.find(s=>s.jobId===jid); }
+function addSession(s){ _sessions.unshift(s); saveSessions(); }
+function updateSession(jid,upd){ const s=getSession(jid); if(s){Object.assign(s,upd);saveSessions();} }
+function removeSession(jid){ const s=getSession(jid); if(s?.pollInterval)clearInterval(s.pollInterval); _sessions=_sessions.filter(x=>x.jobId!==jid); saveSessions(); }
+
+// History (richer — includes prompt + results)
+function histKey(){ return uKey('hist'); }
+function getHist()     { try{return JSON.parse(localStorage.getItem(histKey())||'[]');}catch{return[];} }
+function setHist(h)    { try{localStorage.setItem(histKey(),JSON.stringify(h.slice(0,50)));}catch{} }
 function addHist(e)    { const h=getHist(); h.unshift(e); setHist(h); }
 function delHist(jid)  { setHist(getHist().filter(e=>e.jobId!==jid)); }
-function updateHist(jid,upd){ const h=getHist(); const e=h.find(x=>x.jobId===jid); if(e) Object.assign(e,upd); setHist(h); }
+function updateHist(jid,upd){ const h=getHist(); const e=h.find(x=>x.jobId===jid); if(e){Object.assign(e,upd);setHist(h);} }
+
+/* ═══════════════════════════════════════════════════════════
+   SESSION BAR (stack bar — latest 6 shown, rest queued)
+   ═══════════════════════════════════════════════════════════ */
+function renderSessionBar(){
+  const bar=$('session-bar');if(!bar)return;
+  const shown=_sessions.slice(0,6);
+  const extraQueued=_sessions.length>6?_sessions.slice(6).filter(s=>s.status==='queued').length:0;
+  if(!_sessions.length){ bar.classList.remove('visible'); $('screen-chat')?.classList.remove('bar-open'); return; }
+  bar.classList.add('visible');
+  $('screen-chat')?.classList.add('bar-open');
+  bar.innerHTML=shown.map(s=>{
+    const dc=s.status==='generating'?'gen':s.status==='done'?'done':s.status==='error'?'err':'queued';
+    const active=s.jobId===_activeJobId?'active-chip':'';
+    const lbl=xe((s.label||s.prompt||'Session').slice(0,26));
+    const cnt=s.total?(s.done||0)+'/'+s.total:(s.done?''+s.done:'');
+    return `<div class="sess-chip ${active}" onclick="onChipClick('${xe(s.jobId)}')" title="${xe(s.prompt||s.label||'')}">
+      <div class="sess-chip-dot ${dc}"></div>
+      <div class="sess-chip-label">${lbl}</div>
+      ${cnt?'<div class="sess-chip-count">'+xe(cnt)+'</div>':''}
+    </div>`;
+  }).join('');
+  const totalQ=extraQueued+_sessions.filter(s=>s.status==='queued'&&_sessions.indexOf(s)<6).length;
+  if(totalQ>0) bar.innerHTML+=`<div class="queue-pill"><i class="fas fa-layer-group" style="font-size:10px"></i> ${totalQ} queued</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   QUEUE LOGIC
+   ═══════════════════════════════════════════════════════════ */
+function countActive(){ return _sessions.filter(s=>s.status==='generating').length; }
+function processQueue(){
+  while(countActive()<MAX_ACTIVE){
+    const next=[..._sessions].reverse().find(s=>s.status==='queued');
+    if(!next)break;
+    next.status='generating'; saveSessions(); renderSessionBar();
+    _kickGeneration(next.jobId);
+  }
+}
+async function _kickGeneration(jobId){
+  const s=getSession(jobId);if(!s)return;
+  try {
+    if(s.tpl==='vidgen') await ghComment('render-video',{jobId,overlayText:s.prompt.slice(0,200),duration:s.vidDuration||30,deviceId:_user.id});
+    else await ghComment('render-image',{jobId,text:s.prompt,deviceId:_user.id});
+    startPolling(jobId);
+  } catch(e){
+    updateSession(jobId,{status:'error',errorMsg:e.message});
+    updateHist(jobId,{status:'error'});
+    renderSessionBar();
+    if(_activeJobId===jobId) addErrMsg(e.message);
+    processQueue();
+  }
+}
+function startPolling(jobId){
+  const s=getSession(jobId);if(!s)return;
+  if(s.pollInterval)clearInterval(s.pollInterval);
+  const iv=setInterval(()=>doPoll(jobId),4000);
+  s.pollInterval=iv;
+}
+async function doPoll(jobId){
+  const s=getSession(jobId);if(!s)return;
+  try {
+    const job=await pollStatus(jobId);if(!job)return;
+    if(s.tpl==='vidgen'){
+      updateSession(jobId,{status:job.status==='done'?'done':job.status==='error'?'error':'generating',progress:job.progress});
+      if(_activeJobId===jobId)updateVidStatus(jobId,job);
+      if(job.status==='done'||job.status==='error'){
+        clearInterval(s.pollInterval);s.pollInterval=null;
+        updateSession(jobId,{status:job.status==='done'?'done':'error',videoUrl:job.videoUrl});
+        updateHist(jobId,{status:job.status,videoUrl:job.videoUrl});
+        if(_activeJobId===jobId){
+          if(job.status==='done'&&job.videoUrl)showVidCard(jobId,job.videoUrl,job.label||'Video');
+          else if(job.status==='error')addErrMsg(job.error||'Video render failed.');
+        }
+        renderSessionBar();processQueue();
+      }
+    } else {
+      const results=job.results||[];
+      if(!_titles[jobId])_titles[jobId]=[];
+      results.forEach((r,i)=>{if(r.title)_titles[jobId][i]=r.title;});
+      const prevSeen=s.seenCount||0;
+      if(_activeJobId===jobId){
+        for(let i=prevSeen;i<results.length;i++)addImgCard(jobId,results[i],i);
+        updateGroupHd(jobId,job.done||results.length,job.total||results.length,job.status);
+        scrollDown();
+      }
+      updateSession(jobId,{seenCount:results.length,done:job.done||results.length,total:job.total||results.length,status:job.status==='done'?'done':job.status==='error'?'error':'generating'});
+      if(job.status==='done'||job.status==='error'){
+        clearInterval(s.pollInterval);s.pollInterval=null;
+        updateHist(jobId,{status:job.status,results,done:job.done||results.length,total:job.total||results.length});
+        if(_activeJobId===jobId){
+          if(job.status==='error')addErrMsg(job.error||'Generation failed.');
+          else restoreJobStates(jobId,results.length);
+          updateGroupHd(jobId,job.done||results.length,job.total||results.length,job.status);
+        }
+        renderSessionBar();processQueue();
+      }
+    }
+  } catch {}
+}
 
 /* ═══════════════════════════════════════════════════════════
    SCREENS
@@ -805,101 +1095,78 @@ function openTemplate(id) {
   $('ch-title').textContent = vid ? 'Video Generator' : 'Image Generator';
   $('dur-row').style.display = vid ? 'flex' : 'none';
   $('ch-ta').placeholder = vid ? 'Type the text to overlay on your video…' : 'Paste your content here…';
+  _activeJobId = null;
   clearChat();
   show('chat');
 }
 
+/* Chip click — switch active session in chat */
+function onChipClick(jobId){
+  _activeJobId=jobId;
+  renderSessionBar();
+  const s=getSession(jobId);if(!s)return;
+  _tpl=s.tpl;
+  $('ch-icon').textContent =s.tpl==='vidgen'?'🎬':'🎨';
+  $('ch-title').textContent=s.tpl==='vidgen'?'Video Generator':'Image Generator';
+  $('dur-row').style.display=s.tpl==='vidgen'?'flex':'none';
+  clearChat();hideEmpty();
+  show('chat');
+  addUserMsg(s.prompt||'');
+  addSessionSep(s.ts);
+  if(s.tpl==='vidgen'){
+    addVidGroup(jobId);
+    if(s.status==='done'&&s.videoUrl)showVidCard(jobId,s.videoUrl,s.label||'Video');
+    else if(s.status==='error')addErrMsg(s.errorMsg||'Failed.');
+    else updateVidStatus(jobId,{status:'processing',progress:s.progress||'Processing…'});
+  } else {
+    addImgGroup(jobId);
+    const hEntry=getHist().find(e=>e.jobId===jobId);
+    const results=hEntry?.results||[];
+    if(!_titles[jobId])_titles[jobId]=[];
+    results.forEach((r,i)=>{if(r.title)_titles[jobId][i]=r.title;});
+    results.forEach((r,i)=>addImgCard(jobId,r,i));
+    updateGroupHd(jobId,s.done||results.length,s.total||results.length,s.status==='done'?'done':s.status==='error'?'error':'processing');
+    if(s.status==='error')addErrMsg(s.errorMsg||'Failed.');
+    else restoreJobStates(jobId,results.length);
+  }
+  scrollDown();
+}
+
 /* ═══════════════════════════════════════════════════════════
-   SEND
+   SEND — creates session, queues or starts immediately
    ═══════════════════════════════════════════════════════════ */
 async function sendMsg() {
   const ta   = $('ch-ta');
   const text = ta.value.trim();
-  if (!text || _poll) return;
-
-  ta.value = ''; resize(ta);
-  busy(true);
+  if (!text) return;
+  ta.value=''; resize(ta);
   hideEmpty();
   addUserMsg(text);
-
-  const thinkId = 't' + Date.now();
-  const jobId   = `j-${_user.id}-${Date.now()}`;
-
-  if (_tpl === 'vidgen') {
-    addThink(thinkId, 'Sending to GitHub Actions…');
-    scrollDown();
-    try {
-      await ghComment('render-video', {
-        jobId,
-        overlayText: text.slice(0, 200),
-        duration: parseInt($('dur-input')?.value||'30', 10),
-        deviceId: _user.id
-      });
-      $v(thinkId);
-      addHist({ jobId, label: text.slice(0,80), tpl:'vidgen', ts: Date.now(), status:'processing' });
-      addVidGroup(jobId);
-      scrollDown();
-      _poll = setInterval(() => pollVid(jobId), 4000);
-    } catch(e) {
-      $v(thinkId);
-      addErrMsg(e.message);
-      busy(false);
-    }
-
+  const jobId=`j-${_user.id}-${Date.now()}`;
+  _activeJobId=jobId;
+  const sess={
+    jobId, prompt:text, label:text.slice(0,80),
+    tpl:_tpl, ts:Date.now(), status:'queued',
+    done:0, total:0, seenCount:0,
+    vidDuration:parseInt($('dur-input')?.value||'30',10)
+  };
+  addSession(sess);
+  addHist({jobId,prompt:text,label:text.slice(0,80),tpl:_tpl,ts:Date.now(),status:'processing'});
+  if(_tpl==='vidgen') addVidGroup(jobId);
+  else addImgGroup(jobId);
+  scrollDown();
+  renderSessionBar();
+  if(countActive()<MAX_ACTIVE){
+    updateSession(jobId,{status:'generating'});
+    renderSessionBar();
+    await _kickGeneration(jobId);
   } else {
-    addThink(thinkId, 'Sending to GitHub Actions…');
-    scrollDown();
-    try {
-      await ghComment('render-image', { jobId, text, deviceId: _user.id });
-      $v(thinkId);
-      _seen = 0;
-      addHist({ jobId, label: text.slice(0,80), tpl:'imggen', ts: Date.now(), status:'processing' });
-      addImgGroup(jobId);
-      scrollDown();
-      _poll = setInterval(() => pollImg(jobId), 4000);
-    } catch(e) {
-      $v(thinkId);
-      addErrMsg(e.message);
-      busy(false);
-    }
+    const hd=$(`ghd-${jobId}`);
+    if(hd) hd.innerHTML=`<div class="group-hd-l"><span style="color:var(--yw)">⏳</span><span>Queued — waiting for a free slot…</span></div>`;
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   POLLING
-   ═══════════════════════════════════════════════════════════ */
-async function pollImg(jobId) {
-  try {
-    const job = await pollStatus(jobId);
-    if (!job) return;
-    const results = job.results || [];
-    if (!_titles[jobId]) _titles[jobId] = [];
-    results.forEach((r,i) => { if(r.title) _titles[jobId][i]=r.title; });
-    for (let i = _seen; i < results.length; i++) { addImgCard(jobId, results[i], i); _seen++; }
-    updateGroupHd(jobId, job.done||results.length, job.total||results.length, job.status);
-    scrollDown();
-    if (job.status==='done'||job.status==='error') {
-      clearInterval(_poll); _poll=null; busy(false);
-      if (job.status==='error') addErrMsg(job.error||'Generation failed.');
-      else restoreJobStates(jobId, results.length);
-      updateHist(jobId, { status: job.status });
-    }
-  } catch {}
-}
-
-async function pollVid(jobId) {
-  try {
-    const job = await pollStatus(jobId);
-    if (!job) return;
-    updateVidStatus(jobId, job);
-    if (job.status==='done'||job.status==='error') {
-      clearInterval(_poll); _poll=null; busy(false);
-      if (job.status==='done' && job.videoUrl) showVidCard(jobId, job.videoUrl, job.label||'Video');
-      else if (job.status==='error') addErrMsg(job.error||'Video render failed.');
-      updateHist(jobId, { status: job.status, videoUrl: job.videoUrl });
-    }
-  } catch {}
-}
+/* POLLING — now handled by doPoll() in session system above */
 
 /* ═══════════════════════════════════════════════════════════
    DOM BUILDERS
@@ -920,9 +1187,9 @@ function addErrMsg(m) {
 function addSessionSep(ts) { mkEl('div','session-sep',new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})); }
 
 /* ── Interaction state (colored borders + badge overlays) ── */
-const LS_IS='luma_istate';
-function loadIS(){try{return JSON.parse(localStorage.getItem(LS_IS)||'{}')}catch{return{}}}
-function saveIS(d){try{localStorage.setItem(LS_IS,JSON.stringify(d))}catch{}}
+// Interaction state — per user
+function loadIS(){try{return JSON.parse(localStorage.getItem(uKey('istate'))||'{}')}catch{return{}}}
+function saveIS(d){try{localStorage.setItem(uKey('istate'),JSON.stringify(d))}catch{}}
 function iKey(jobId,idx){return jobId+'::'+idx}
 function recordIA(jobId,idx,type,title){
   const d=loadIS(),k=iKey(jobId,idx);
@@ -1168,6 +1435,7 @@ function renderHist(h) {
     const sc=e.status==='done'?'ok':e.status==='error'?'err':'';
     const st=e.status==='done'?'Complete':e.status==='error'?'Failed':'In progress';
     const badge=e.tpl==='vidgen'?'<span class="hist-item-badge vid">Video</span>':'<span class="hist-item-badge img">Image</span>';
+    const promptLine=e.prompt?`<div class="hist-item-prompt">"${xe(e.prompt.slice(0,60))}${e.prompt.length>60?'…':''}"</div>`:'';
     return `<div class="hist-item" onclick="loadSess('${xe(e.jobId)}')">
       <div class="hist-item-top">
         <div class="hist-item-date">${d}</div>
@@ -1176,36 +1444,26 @@ function renderHist(h) {
           <button class="hist-item-del" onclick="delSess(event,'${xe(e.jobId)}')"><i class="fas fa-trash-can"></i></button>
         </div>
       </div>
-      <div class="hist-item-label">${xe(e.label)}</div>
+      ${promptLine}
+      <div class="hist-item-label">${xe(e.label||'')}</div>
       <div class="hist-item-status ${sc}">${st}</div>
     </div>`;
   }).join('');
 }
 
 async function loadSess(jobId) {
-  closeHistory(); clearChat();
-  const tid='hl'+Date.now();
-  addThink(tid,'Loading session…');scrollDown();
-  try {
-    const job=await pollStatus(jobId);
-    $v(tid);
-    if(!job){addErrMsg('Session not found. It may have been cleared from GitHub.');return;}
-    addSessionSep(job.timestamp);
-    if(job.template==='vidgen'){
-      addVidGroup(jobId);
-      if(job.status==='done'&&job.videoUrl) showVidCard(jobId,job.videoUrl,job.label||'Video');
-    } else {
-      if(!_titles[jobId])_titles[jobId]=[];
-      (job.results||[]).forEach((r,i)=>{if(r.title)_titles[jobId][i]=r.title;});
-      addImgGroup(jobId);
-      for(let i=0;i<(job.results||[]).length;i++) addImgCard(jobId,job.results[i],i);
-      updateGroupHd(jobId,job.done,job.total,job.status);
-      restoreJobStates(jobId,(job.results||[]).length);
-    }
-    scrollDown();
-  } catch(e){ $v(tid);addErrMsg('Failed to load: '+e.message); }
+  closeHistory();
+  const existing=getSession(jobId);
+  if(existing){ onChipClick(jobId); return; }
+  // Restore from history as a "done" session
+  const h=getHist().find(e=>e.jobId===jobId);
+  if(!h){ toast('⚠️ Session data not found'); return; }
+  const s={jobId,prompt:h.prompt||h.label||'',label:h.label||'',tpl:h.tpl||'imggen',ts:h.ts||Date.now(),status:h.status||'done',done:h.done||0,total:h.total||0,seenCount:h.done||0,videoUrl:h.videoUrl};
+  _sessions.unshift(s);
+  renderSessionBar();
+  onChipClick(jobId);
 }
-function delSess(e,jid){ e.stopPropagation();delHist(jid);renderHist(getHist()); }
+function delSess(e,jid){ e.stopPropagation();delHist(jid);removeSession(jid);renderHist(getHist());renderSessionBar(); }
 
 /* ═══════════════════════════════════════════════════════════
    UTILS
@@ -1234,7 +1492,10 @@ function toast(m){ const t=$('toast');t.innerHTML=`<i class="fas fa-circle-check
    INIT
    ═══════════════════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
-  try { const s=localStorage.getItem(LS_U); if(s){_user=JSON.parse(s);enterApp();} } catch {}
+  try {
+    const s=localStorage.getItem(LS_U);
+    if(s){ _user=JSON.parse(s); window._lumaUser=_user; enterApp(); }
+  } catch {}
   const ta=$('ch-ta');
   if(ta){
     ta.addEventListener('input',()=>resize(ta));
