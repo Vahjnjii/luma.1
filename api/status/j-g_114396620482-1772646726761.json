@@ -1,1 +1,1 @@
-{"jobId":"j-g_114396620482-1772646726761","deviceId":"g_114396620482","status":"processing","template":"vidgen","total":1,"done":0,"label":"Rendering video…","timestamp":1772646769000,"results":[]}
+{"jobId":"j-g_114396620482-1772646726761","deviceId":"g_114396620482","status":"done","template":"vidgen","total":1,"done":1,"label":"Video","timestamp":1772646778071,"videoUrl":"https://github.com/Vahjnjii/luma.1/releases/download/video-j-g_114396620482-1772646726761/video-j-g_114396620482-1772646726761.mp4","results":[]}
