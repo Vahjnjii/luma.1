@@ -730,71 +730,100 @@ let GOOGLE_CLIENT_ID = null;
 
 // Fetch Google Client ID from Cloudflare Worker /config endpoint
 // The worker reads it from its secret env var GOOGLE_CLIENT_ID
-async function loadGoogleConfig() {
-  try {
-    // CFG.worker is defined in the main script below — we poll until it's ready
-    const workerUrl = (typeof CFG !== 'undefined' ? CFG.worker : null)
-      || document.querySelector('script[data-worker]')?.dataset?.worker;
-    if (!workerUrl || workerUrl.includes('YOUR_WORKER')) return;
-    const r = await fetch(workerUrl + '/config');
-    if (!r.ok) return;
-    const data = await r.json();
-    if (data.google_client_id) {
-      GOOGLE_CLIENT_ID = data.google_client_id;
-      console.log('✓ Google config loaded from Worker');
+let _configPromise = null;
+
+function loadGoogleConfig() {
+  // Return existing promise if already fetching
+  if (_configPromise) return _configPromise;
+  _configPromise = (async () => {
+    try {
+      // Wait for CFG to be defined (it's in the second script block)
+      let workerUrl = null;
+      for (let i = 0; i < 20; i++) {
+        workerUrl = (typeof CFG !== 'undefined') ? CFG.worker : null;
+        if (workerUrl && !workerUrl.includes('YOUR_WORKER')) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
+      if (!workerUrl || workerUrl.includes('YOUR_WORKER')) return null;
+      const r = await fetch(workerUrl + '/config');
+      if (!r.ok) return null;
+      const data = await r.json();
+      if (data.google_client_id) {
+        GOOGLE_CLIENT_ID = data.google_client_id;
+        return GOOGLE_CLIENT_ID;
+      }
+      return null;
+    } catch(e) {
+      // Silent — worker unreachable in preview, works fine on real site
+      return null;
+    } finally {
+      _configPromise = null; // allow retry on next click if it failed
     }
-  } catch(e) {
-    console.warn('Could not load Google config from Worker:', e.message);
-  }
+  })();
+  return _configPromise;
 }
 
-// Auto-load config after page loads (waits for CFG to be defined)
-window.addEventListener('load', () => setTimeout(loadGoogleConfig, 500));
+window._doGoogleLoginFb = async function() {
+  const e   = document.getElementById('login-err');
+  const btn = document.getElementById('btn-google');
+  e.style.display = 'none';
 
-window._doGoogleLoginFb = function() {
-  const e = document.getElementById('login-err');
-  if (!GOOGLE_CLIENT_ID) {
-    e.textContent = 'Loading Google config… please try again in a moment.';
-    e.style.display = 'block';
-    loadGoogleConfig(); // retry fetch
-    return;
-  }
-  if (!window.google || !window.google.accounts) {
-    e.textContent = 'Google sign-in library not loaded. Check your internet connection.';
-    e.style.display = 'block';
-    return;
-  }
-  window.google.accounts.oauth2.initTokenClient({
-    client_id: GOOGLE_CLIENT_ID,
-    scope: 'openid email profile',
-    callback: function(resp) {
-      if (resp.error) {
-        e.textContent = 'Sign-in failed: ' + resp.error;
-        e.style.display = 'block';
-        return;
-      }
-      // Get user info from Google
-      fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: 'Bearer ' + resp.access_token }
-      })
-      .then(r => r.json())
-      .then(profile => {
-        const u = {
-          name:   profile.name || profile.email.split('@')[0],
-          email:  profile.email,
-          id:     'g_' + profile.sub.slice(0,12),
-          photo:  profile.picture || null,
-          ts:     Date.now(),
-          method: 'google'
-        };
-        window._lumaSetUser(u);
-      })
-      .catch(err => {
-        e.textContent = 'Failed to get profile: ' + err.message;
-        e.style.display = 'block';
-      });
+  // Show spinner while fetching config
+  const originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-circle-notch" style="animation:spin .9s linear infinite;font-size:16px"></i> Connecting…';
+
+  try {
+    // Fetch config if not already loaded
+    if (!GOOGLE_CLIENT_ID) {
+      await loadGoogleConfig();
     }
-  }).requestAccessToken();
+    if (!GOOGLE_CLIENT_ID) {
+      throw new Error('Could not load Google config. Check Cloudflare Worker has GOOGLE_CLIENT_ID secret set.');
+    }
+    if (!window.google || !window.google.accounts) {
+      throw new Error('Google sign-in library not loaded. Check your internet connection.');
+    }
+
+    // Launch Google OAuth popup
+    await new Promise((resolve, reject) => {
+      window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: 'openid email profile',
+        callback: function(resp) {
+          if (resp.error) { reject(new Error(resp.error)); return; }
+          // Fetch profile
+          fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: 'Bearer ' + resp.access_token }
+          })
+          .then(r => r.json())
+          .then(profile => {
+            const u = {
+              name:   profile.name || profile.email.split('@')[0],
+              email:  profile.email,
+              id:     'g_' + profile.sub.slice(0,12),
+              photo:  profile.picture || null,
+              ts:     Date.now(),
+              method: 'google'
+            };
+            window._lumaSetUser(u);
+            resolve();
+          })
+          .catch(reject);
+        },
+        error_callback: function(err) {
+          if (err.type === 'popup_closed') { resolve(); } // user closed popup — not an error
+          else reject(new Error(err.type || 'Sign-in failed'));
+        }
+      }).requestAccessToken();
+    });
+
+  } catch(err) {
+    e.textContent = '⚠️ ' + err.message;
+    e.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+  }
 };
 
 window._doFbSignOut = function() {
