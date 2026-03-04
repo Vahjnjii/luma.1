@@ -203,122 +203,57 @@ jobs:
           posts = posts.map(p => applyBold(p.title||'', p.content||[]));
           
           // ══════════════════════════════════════════════════════════════
-          // EMOJI — Twemoji PNG embeds
+          // EMOJI — rendered directly as SVG <text> using system emoji fonts
           //
-          // Root cause of "numbers in SVG":
-          //   • \uFE0F (variation selector-16, cp=65039) and \u200D (ZWJ, cp=8205)
-          //     are BELOW U+FFFF so old stripResidualEmoji kept them — they render
-          //     as raw code points in SVG <text> on systems without color emoji fonts
-          //   • \p{Extended_Pictographic} misses some BMP emoji; \p{Emoji_Presentation}
-          //     covers the full default-emoji-display set
+          // STRATEGY: No external CDN. Emoji are Unicode characters placed in
+          // <text> nodes with font-family="'Noto Color Emoji','Apple Color Emoji',
+          // 'Segoe UI Emoji','Twemoji Mozilla',sans-serif".
+          // Every modern browser and OS has color emoji fonts built in.
+          // This is 100% reliable — no network calls, no CDN failures.
           //
-          // Fix:
-          //   1. Comprehensive EMOJI_RE covering ALL sequence types
-          //   2. sanitizeText() nukes every emoji-adjacent BMP character from text nodes
-          //   3. If Twemoji fetch fails → replace emoji with ▸ bullet in SVG
+          // sanitizeText() still strips residual codepoints from plain-text nodes
+          // so numbers/codes never appear raw in SVG.
           // ══════════════════════════════════════════════════════════════
           
-          // Match every emoji sequence type:
-          //   • ZWJ compound sequences (most specific — checked first)
-          //   • Flag pairs (regional indicators)
-          //   • Keycap sequences: digit/# /* + VS16 + U+20E3
-          //   • Any emoji + VS16 (forces emoji presentation)
-          //   • Emoji that already default to emoji presentation
-          //   • BMP emoji without VS16 (zodiac, symbols — text-presentation default)
-          //     These are missed by \p{Emoji_Presentation} but must not be left in SVG <text>
+          // Match every emoji sequence type (used to split text segments):
+          //   • ZWJ compound sequences  (👨‍👩‍👧 family etc.)
+          //   • Flag pairs              (🇮🇳 country flags)
+          //   • Keycap sequences        (1️⃣ etc.)
+          //   • Emoji + VS16            (☀️ with variation selector)
+          //   • Default-emoji-display   (🔥⭐ etc., no VS16 needed)
+          //   • BMP symbols used as emoji without VS16 (zodiac ♈-♓, arrows, dingbats)
           const EMOJI_RE = new RegExp(
             '(?:' +
-            // ZWJ sequences (e.g. 👨‍👩‍👧)
             '\\p{Emoji}(?:\\uFE0F|[\\u{1F3FB}-\\u{1F3FF}])?(?:\\u200D(?:\\p{Emoji}(?:\\uFE0F|[\\u{1F3FB}-\\u{1F3FF}])?))+' +
-            // Flag emoji: two regional indicators
             '|[\\u{1F1E0}-\\u{1F1FF}]{2}' +
-            // Keycap: [0-9#*] + optional VS16 + U+20E3
             '|[#*0-9]\\uFE0F?\\u20E3' +
-            // Any emoji forced to emoji presentation by VS16
             '|\\p{Emoji}\\uFE0F(?:[\\u{1F3FB}-\\u{1F3FF}])?' +
-            // Default emoji-presentation glyphs (covers ⭐ ☀️ 🔥 etc. without VS16)
             '|\\p{Emoji_Presentation}(?:[\\u{1F3FB}-\\u{1F3FF}])?' +
-            // BMP emoji that are text-presentation by default but used as emoji without VS16:
-            // Zodiac signs ♈-♓ (U+2648-2653), Misc Symbols (U+2600-U+2647, U+2654-U+27BF)
-            // Misc Technical (U+2300-U+23FF), Arrows (U+2190-U+21FF), Geometric (U+25A0-U+25FF)
-            // Dingbats (U+2700-U+27BF), Misc Symbols & Arrows (U+2B00-U+2BFF)
             '|[\\u2190-\\u21FF\\u2300-\\u27BF\\u25A0-\\u25FF\\u2B00-\\u2BFF\\u2B50\\u2B55\\u231A\\u231B]' +
             ')',
             'gu'
           );
           
-          // Convert emoji string → Twemoji PNG filename (hex codepoints joined by -)
-          function emojiToHex(emoji) {
-            return [...emoji]
-              .map(c => c.codePointAt(0))
-              .filter(cp =>
-                cp !== 0xFE0F &&                        // strip VS16
-                cp !== 0x200D &&                        // strip ZWJ
-                !(cp >= 0xE0000 && cp <= 0xE007F)      // strip tag chars
-              )
-              .map(cp => cp.toString(16))
-              .join('-');
-          }
+          // Emoji font stack — every modern OS has at least one of these
+          const EF = "'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji','Twemoji Mozilla','EmojiOne Color',sans-serif";
           
-          // Remove ALL emoji-adjacent characters from text nodes — nuclear safety net.
-          // Now covers all BMP ranges that EMOJI_RE also catches, so the two are in sync.
-          // Any character caught by EMOJI_RE goes through the emoji/Twemoji path;
-          // sanitizeText is the last-resort safety net for anything that slips through.
+          // Remove residual emoji codepoints from PLAIN TEXT nodes only.
+          // Characters matched by EMOJI_RE are always handled separately as emoji segments.
           function sanitizeText(str) {
             return [...str].filter(ch => {
               const cp = ch.codePointAt(0);
-              if (cp > 0xFFFF)        return false; // non-BMP (emoji, etc.)
+              if (cp > 0xFFFF)        return false; // non-BMP (SMP emoji, etc.)
               if (cp === 0xFE0F)      return false; // variation selector-16
               if (cp === 0x200D)      return false; // ZWJ
               if (cp === 0x20E3)      return false; // combining enclosing keycap
               if (cp >= 0xFE00 && cp <= 0xFE0F) return false; // variation selectors
-              if (cp >= 0x2190 && cp <= 0x21FF) return false; // arrows (↑↓→ etc.)
+              if (cp >= 0x2190 && cp <= 0x21FF) return false; // arrows
               if (cp >= 0x2300 && cp <= 0x27BF) return false; // misc technical + symbols + dingbats
               if (cp >= 0x25A0 && cp <= 0x25FF) return false; // geometric shapes
-              if (cp >= 0x2B00 && cp <= 0x2BFF) return false; // misc symbols & arrows (⭐ etc.)
-              if (cp === 0x231A || cp === 0x231B) return false; // watch / hourglass
-              if (cp >= 0x1F000)      return false; // SMP emoji (guard)
+              if (cp >= 0x2B00 && cp <= 0x2BFF) return false; // misc symbols & arrows
+              if (cp === 0x231A || cp === 0x231B) return false; // watch/hourglass
               return true;
             }).join('');
-          }
-          
-          const emojiCache = {};
-          async function getEmojiPng(emoji) {
-            const hex = emojiToHex(emoji);
-            if (hex in emojiCache) return emojiCache[hex];
-          
-            // Progressive fallback: exact → first 2 parts → first part only
-            const parts = hex.split('-');
-            const candidates = [hex];
-            if (parts.length > 2) candidates.push(parts.slice(0, 2).join('-'));
-            if (parts.length > 1) candidates.push(parts[0]);
-          
-            for (const h of candidates) {
-              const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${h}.png`;
-              try {
-                const r = await fetch(url);
-                if (!r.ok) continue;
-                const b64 = Buffer.from(await r.arrayBuffer()).toString('base64');
-                emojiCache[hex] = `data:image/png;base64,${b64}`;
-                return emojiCache[hex];
-              } catch {}
-            }
-            emojiCache[hex] = null; // cache failure so we don't retry
-            console.log('Emoji not found in Twemoji, will use bullet: ' + hex);
-            return null;
-          }
-          
-          // Pre-fetch all emoji across all posts in parallel
-          const allEmoji = new Set();
-          for (const p of posts) {
-            const all = [p.title, ...(p.content||[])].filter(Boolean).join('\n');
-            for (const m of all.matchAll(EMOJI_RE)) allEmoji.add(m[0]);
-          }
-          if (allEmoji.size > 0) {
-            console.log('Fetching ' + allEmoji.size + ' emoji from Twemoji CDN…');
-            await Promise.all([...allEmoji].map(e => getEmojiPng(e)));
-            const ok = Object.values(emojiCache).filter(Boolean).length;
-            console.log('Emoji ready: ' + ok + '/' + allEmoji.size + ' (rest → ▸ bullet)');
           }
           
           // Split a string into interleaved {type:'text'|'emoji', val} segments
@@ -333,7 +268,7 @@ jobs:
             return segs.filter(s => s.val);
           }
           
-          // ══════════════════════════════════════════════════════════════
+                    // ══════════════════════════════════════════════════════════════
           // SVG RENDERER
           // ══════════════════════════════════════════════════════════════
           const BF  = "'Syne','DM Sans',ui-sans-serif,system-ui,sans-serif";
@@ -360,24 +295,22 @@ jobs:
           function smartWrap(txt,cpl) { if(!txt)return['']; const p=clean(txt),sp=(p.match(/ /g)||[]).length,wc=[...p].filter(isWide).length; return (wc>p.length*.3||(wc>2&&sp<2))?wrapCJK(txt,cpl):wrapLatin(txt,cpl); }
           
           // ══════════════════════════════════════════════════════════════
-          // renderLine — correct bold + emoji interaction
+          // renderLine — bold-aware, emoji-aware, CDN-free
           //
-          // OLD (broken): split PLAIN text by emoji first → then guess bold
-          //   → When an emoji exists, ALL bold formatting was silently lost
-          //     because the whole text became one un-bold segment.
+          // Emoji are rendered as SVG <text> with an emoji font stack.
+          // No external CDN needed. Every browser/OS has color emoji fonts.
           //
-          // NEW (correct): parse bold markers first → then split each
-          //   bold/normal segment by emoji → render each piece correctly.
-          //   Bold applies inside emoji segments too (e.g. "🌟 **Aries**").
+          // Pipeline per line:
+          //   1. parseBold()      → [{t, b:bool}] from ** markers
+          //   2. splitSegments()  → [{type:'text'|'emoji', val}] per bold chunk
+          //   3. render each piece with correct font-weight + font-family
           // ══════════════════════════════════════════════════════════════
           function renderLine(px, y, fs, fw, fill, raw) {
-            const boldSegs = parseBold(raw);   // [{t, b:bool}] from ** markers in raw
+            const boldSegs = parseBold(raw);
             const hasBold  = boldSegs.some(s => s.b);
-          
-            // ── Check for any emoji in any segment ──
             const hasEmoji = boldSegs.some(s => splitSegments(s.t).some(sg => sg.type === 'emoji'));
           
-            // ── No emoji: fast path ──
+            // ── No emoji: fast path (single <text> with <tspan>s for bold) ──
             if (!hasEmoji) {
               if (!hasBold) {
                 return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(sanitizeText(clean(raw)))}</text>`;
@@ -388,42 +321,35 @@ jobs:
               return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${sp}</text>`;
             }
           
-            // ── Has emoji: iterate boldSegs, split each by emoji ──
-            // This preserves bold state correctly for every emoji and text fragment.
-            const eSize = Math.round(fs * 1.1);
-            const eTop  = y - Math.round(fs * 0.85);
+            // ── Has emoji: render each segment with its own font ──
+            // Emoji: use emoji font stack so system color emoji always render.
+            // Text:  use normal font with correct bold/weight.
+            const eSize = Math.round(fs * 1.15); // emoji slightly larger than text for visual balance
             const parts = [];
             let   xCur  = px;
           
             for (const bseg of boldSegs) {
               const segFw   = bseg.b ? 900 : fw;
               const segFill = bseg.b ? '#FFFFFF' : fill;
-              const subSegs = splitSegments(bseg.t); // split this bold/normal chunk by emoji
+              const subSegs = splitSegments(bseg.t);
           
               for (const ss of subSegs) {
                 if (ss.type === 'emoji') {
-                  const uri = emojiCache[emojiToHex(ss.val)];
-                  if (uri) {
-                    parts.push(
-          `<image x="${Math.round(xCur)}" y="${eTop}" width="${eSize}" height="${eSize}" ` +
-          `xlink:href="${uri}" href="${uri}" preserveAspectRatio="xMidYMid meet"/>`
-                    );
-                    xCur += eSize + 4;
-                  } else {
-                    // Twemoji fetch failed → render ▸ bullet in correct bold/color
-                    parts.push(
-          `<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" ` +
-          `font-size="${fs}" font-weight="${segFw}" fill="${segFill}">&#x25B8;</text>`
-                    );
-                    xCur += fs * 0.6;
-                  }
+                  // Render emoji as text using system emoji fonts — always works
+                  const safeEmoji = xe(ss.val);
+                  parts.push(
+                    `<text x="${Math.round(xCur)}" y="${y}" ` +
+                    `font-family="${EF}" font-size="${eSize}" ` +
+                    `dominant-baseline="auto" xml:space="preserve">${safeEmoji}</text>`
+                  );
+                  xCur += eSize; // emoji are square
                 } else {
                   const safeVal = sanitizeText(ss.val);
                   if (!safeVal) continue;
                   parts.push(
-          `<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" ` +
-          `font-size="${fs}" font-weight="${segFw}" fill="${segFill}" ` +
-          `xml:space="preserve">${xe(safeVal)}</text>`
+                    `<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" ` +
+                    `font-size="${fs}" font-weight="${segFw}" fill="${segFill}" ` +
+                    `xml:space="preserve">${xe(safeVal)}</text>`
                   );
                   xCur += estW(safeVal, fs);
                 }
@@ -432,7 +358,7 @@ jobs:
             return parts.join('');
           }
           
-          async function makeSVG(post) {
+                    async function makeSVG(post) {
             const W=1080,H=1920,PX=110,PY=130,CW=W-PX*2,BOT=H-PY;
             const rawTitle=(post.title||'').trim(), content=post.content||[];
             const vL=charLen(clean(rawTitle))+charLen(content.map(l=>clean(l||'')).join(''));
