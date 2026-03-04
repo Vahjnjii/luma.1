@@ -1096,12 +1096,20 @@ function renderSessionBar(){
    ═══════════════════════════════════════════════════════════ */
 function countActive(){ return _sessions.filter(s=>s.status==='generating').length; }
 function processQueue(){
-  while(countActive()<MAX_ACTIVE){
-    const next=[..._sessions].reverse().find(s=>s.status==='queued');
-    if(!next)break;
-    next.status='generating'; saveSessions(); renderSessionBar();
-    _kickGeneration(next.jobId);
+  // Collect ALL slots that can be filled right now, then fire them in parallel
+  const toStart=[];
+  let active=countActive();
+  const queued=[..._sessions].reverse().filter(s=>s.status==='queued');
+  for(const next of queued){
+    if(active>=MAX_ACTIVE)break;
+    next.status='generating';
+    active++;
+    toStart.push(next.jobId);
   }
+  if(!toStart.length)return;
+  saveSessions(); renderSessionBar();
+  // Fire all in parallel — intentionally NOT awaiting inside the loop
+  toStart.forEach(jid=>{ _kickGeneration(jid); });
 }
 async function _kickGeneration(jobId){
   const s=getSession(jobId);if(!s)return;
@@ -1292,7 +1300,8 @@ async function sendMsg() {
   if(countActive()<MAX_ACTIVE){
     updateSession(jobId,{status:'generating'});
     renderSessionBar();
-    await _kickGeneration(jobId);
+    // Do NOT await — fire and forget so UI stays responsive and parallel jobs don't block each other
+    _kickGeneration(jobId);
   } else {
     const hd=$('ghd-'+jobId);
     if(hd) hd.innerHTML='<div class="group-hd-l"><span style="color:var(--yw)">⏳</span><span>Queued — waiting for a free slot…</span></div>';
