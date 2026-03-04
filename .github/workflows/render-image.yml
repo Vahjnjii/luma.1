@@ -147,72 +147,107 @@ jobs:
 
           // ══════════════════════════════════════════════════════════════
           // 2. EMOJI — download Twemoji PNGs, embed as base64 in SVG
-          //    SVG <text> renders emoji as white glyph — <image> fixes it
+          //
+          // Root causes of "numbers appearing instead of emoji":
+          //   a) \p{Extended_Pictographic} misses flag emoji (regional indicator
+          //      pairs like 🇮🇳), keycap sequences (1️⃣ 2️⃣), and ZWJ stacks
+          //   b) Missed emoji stay in <text> nodes; SVG renders their codepoint
+          //      as a decimal number on headless systems without color emoji fonts
+          //   c) href= needs xlink:href for SVG 1.1 canvas compatibility
+          //
+          // Fix: comprehensive regex covering ALL emoji sequence types +
+          //      strip any residual non-BMP chars from text nodes as safety net
           // ══════════════════════════════════════════════════════════════
-          const EMOJI_RE = /\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu;
 
+          // Comprehensive emoji regex — covers:
+          //   • Standard pictographic + ZWJ sequences + variation selectors
+          //   • Flag emoji (pairs of Regional_Indicator chars like 🇮🇳 🇺🇸)
+          //   • Keycap sequences: 0-9, #, * + U+FE0F + U+20E3  (1️⃣ 2️⃣ etc.)
+          //   • Tag sequences (sub-division flags like 🏴󠁧󠁢󠁥󠁮󠁧󠁿)
+          const EMOJI_RE = new RegExp(
+            '(?:' +
+            // Flag: two Regional Indicator letters (U+1F1E6–U+1F1FF)
+            '[\\u{1F1E0}-\\u{1F1FF}]{2}' +
+            // Keycap: digit/# /* + optional VS16 + combining enclosing keycap
+            '|[0-9#*]\\uFE0F?\\u20E3' +
+            // Tag sequence: starts with U+1F3F4, ends with U+E007F
+            '|\\u{1F3F4}[\\u{E0000}-\\u{E007F}]+' +
+            // Extended pictographic with optional VS16, ZWJ chains, skin tones
+            '|\\p{Extended_Pictographic}(?:\\uFE0F|\\u{1F3FB}-\\u{1F3FF})?(?:\\u200D(?:\\p{Extended_Pictographic}(?:\\uFE0F|\\u{1F3FB}-\\u{1F3FF})?))*' +
+            ')',
+            'gu'
+          );
+
+          // Convert an emoji string to its Twemoji filename (hex codepoints joined by -)
+          // Strips variation selectors (U+FE0F) and tags (U+E0000–U+E007F) from the key
           function emojiToHex(emoji) {
             return [...emoji]
               .map(c => c.codePointAt(0))
-              .filter(cp => cp !== 0xFE0F)   // strip variation selector
+              .filter(cp => cp !== 0xFE0F && !(cp >= 0xE0000 && cp <= 0xE007F))
               .map(cp => cp.toString(16))
               .join('-');
+          }
+
+          // Strip any non-BMP characters (codepoint > U+FFFF) that aren't in our cache
+          // Safety net so nothing leaks into <text> nodes as numeric garbage
+          function stripResidualEmoji(str) {
+            return [...str]
+              .filter(ch => ch.codePointAt(0) <= 0xFFFF || ch === '\u200D')
+              .join('');
           }
 
           const emojiCache = {};
           async function getEmojiDataUri(emoji) {
             const hex = emojiToHex(emoji);
-            if (emojiCache[hex]) return emojiCache[hex];
-            // Twemoji CDN — no auth needed, very reliable on GitHub Actions
-            const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${hex}.png`;
-            try {
-              const r = await fetch(url);
-              if (!r.ok) throw new Error('404');
-              const buf = await r.arrayBuffer();
-              const b64 = Buffer.from(buf).toString('base64');
-              emojiCache[hex] = `data:image/png;base64,${b64}`;
-              return emojiCache[hex];
-            } catch {
-              // Try without skin-tone / compound suffix (e.g. 1f44d-1f3fd → 1f44d)
-              const base = hex.split('-')[0];
-              if (base !== hex) {
-                const url2 = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${base}.png`;
-                try {
-                  const r2 = await fetch(url2);
-                  if (!r2.ok) throw new Error('404');
-                  const buf2 = await r2.arrayBuffer();
-                  const b64  = Buffer.from(buf2).toString('base64');
-                  emojiCache[hex] = `data:image/png;base64,${b64}`;
-                  return emojiCache[hex];
-                } catch {}
-              }
-              emojiCache[hex] = null; // mark as failed so we don't retry
-              return null;
+            if (hex in emojiCache) return emojiCache[hex]; // null is a valid cached result
+            // Try exact match first, then progressively shorter fallbacks
+            const candidates = [hex];
+            const parts = hex.split('-');
+            if (parts.length > 2) candidates.push(parts.slice(0,2).join('-'));
+            if (parts.length > 1) candidates.push(parts[0]);
+            for (const h of candidates) {
+              const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${h}.png`;
+              try {
+                const r = await fetch(url);
+                if (!r.ok) continue;
+                const b64 = Buffer.from(await r.arrayBuffer()).toString('base64');
+                emojiCache[hex] = `data:image/png;base64,${b64}`;
+                return emojiCache[hex];
+              } catch {}
             }
+            emojiCache[hex] = null;
+            return null;
           }
 
-          // Pre-fetch all unique emoji found across all posts
+          // Pre-fetch all unique emoji across all posts in parallel
           const allEmoji = new Set();
           for (const p of posts) {
             const all = [p.title||'', ...(p.content||[])].join('\n');
             for (const m of all.matchAll(EMOJI_RE)) allEmoji.add(m[0]);
           }
           if (allEmoji.size > 0) {
-            console.log('Pre-fetching ' + allEmoji.size + ' emoji from Twemoji CDN…');
+            console.log('Pre-fetching ' + allEmoji.size + ' unique emoji from Twemoji CDN…');
             await Promise.all([...allEmoji].map(e => getEmojiDataUri(e)));
-            console.log('Emoji ready: ' + Object.values(emojiCache).filter(Boolean).length + ' fetched');
+            const ok = Object.values(emojiCache).filter(Boolean).length;
+            console.log('Emoji cached: ' + ok + ' / ' + allEmoji.size);
           }
 
-          // Split a string into [{type:'text'|'emoji', val}] segments
+          // Split a string into interleaved text/emoji segments
           function splitSegments(str) {
             const segs = [];
             let last = 0;
             for (const m of str.matchAll(EMOJI_RE)) {
-              if (m.index > last) segs.push({ type:'text',  val: str.slice(last, m.index) });
-              segs.push({ type:'emoji', val: m[0] });
+              if (m.index > last) {
+                const txt = str.slice(last, m.index);
+                if (txt) segs.push({ type: 'text', val: txt });
+              }
+              segs.push({ type: 'emoji', val: m[0] });
               last = m.index + m[0].length;
             }
-            if (last < str.length) segs.push({ type:'text', val: str.slice(last) });
+            if (last < str.length) {
+              const txt = str.slice(last);
+              if (txt) segs.push({ type: 'text', val: txt });
+            }
             return segs;
           }
 
@@ -224,8 +259,6 @@ jobs:
           const isWide  = ch => { const cp=ch.codePointAt(0); return cp>=0x1F000||(cp>=0x4E00&&cp<=0x9FFF)||(cp>=0x3040&&cp<=0x30FF)||(cp>=0xAC00&&cp<=0xD7AF)||(cp>=0x2600&&cp<=0x27FF); };
           const charLen = s => { let n=0; for(const c of [...(s||'')]) n+=isWide(c)?2:1; return n; };
 
-          // Rough px-width estimator for text at given font-size
-          // (0.52 for normal Latin, 1.0 for wide/CJK)
           function estWidth(str, fs) {
             let w = 0;
             for (const ch of [...str]) w += isWide(ch) ? fs : fs * 0.52;
@@ -249,27 +282,30 @@ jobs:
           }
           function smartWrap(txt,cpl) { if(!txt)return['']; const p=clean(txt),sp=(p.match(/ /g)||[]).length,wc=[...p].filter(isWide).length; return (wc>p.length*.3||(wc>2&&sp<2))?wrapCJK(txt,cpl):wrapLatin(txt,cpl); }
 
-          // Render one display line — handles bold tspans + inline emoji images
+          // Render one display line — bold tspans for text, <image> for emoji
           function renderLine(px, y, fs, fw, fill, raw) {
-            const textStr = clean(raw);
-            const segs    = splitSegments(textStr);
-            const boldSegs = parseBold(raw); // for bold detection
+            const textStr  = clean(raw);
+            const segs     = splitSegments(textStr);
+            const hasEmoji = segs.some(s => s.type === 'emoji');
+            const boldSegs = parseBold(raw);
             const hasBold  = boldSegs.some(s => s.b);
 
-            // If no emoji in line, use original fast path
-            if (!segs.some(s => s.type === 'emoji')) {
+            // ── Fast path: no emoji ──
+            if (!hasEmoji) {
               if (!hasBold) {
-                return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(textStr)}</text>`;
+                // Safety: strip any residual non-BMP chars that slipped through
+                const safe = xe(stripResidualEmoji(textStr));
+                return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${safe}</text>`;
               }
               const sp = boldSegs.map(s =>
-                `<tspan font-weight="${s.b?900:fw}" fill="${s.b?'#FFFFFF':fill}">${xe(s.t)}</tspan>`
+                `<tspan font-weight="${s.b?900:fw}" fill="${s.b?'#FFFFFF':fill}">${xe(stripResidualEmoji(s.t))}</tspan>`
               ).join('');
               return `<text x="${px}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${sp}</text>`;
             }
 
-            // Mixed text + emoji: render segment by segment with x tracking
+            // ── Mixed path: emoji present — render segment by segment ──
             const emojiSize = Math.round(fs * 1.05);
-            const emojiY    = y - Math.round(fs * 0.82); // top of image = baseline - ascent
+            const emojiTop  = y - Math.round(fs * 0.82);
             const parts     = [];
             let xCur        = px;
 
@@ -277,18 +313,32 @@ jobs:
               if (seg.type === 'emoji') {
                 const uri = emojiCache[emojiToHex(seg.val)];
                 if (uri) {
-                  parts.push(`<image x="${Math.round(xCur)}" y="${emojiY}" width="${emojiSize}" height="${emojiSize}" href="${uri}" preserveAspectRatio="xMidYMid meet"/>`);
-                  xCur += emojiSize + 3;
-                } else {
-                  // fallback: render as text (will be monochrome but better than blank)
-                  parts.push(`<text x="${Math.round(xCur)}" y="${y}" font-family="'Apple Color Emoji','Noto Color Emoji'" font-size="${fs}" xml:space="preserve">${xe(seg.val)}</text>`);
-                  xCur += fs;
+                  // xlink:href for SVG 1.1 canvas compat; href as fallback for SVG 2
+                  parts.push(
+                    `<image x="${Math.round(xCur)}" y="${emojiTop}" ` +
+                    `width="${emojiSize}" height="${emojiSize}" ` +
+                    `xlink:href="${uri}" href="${uri}" ` +
+                    `preserveAspectRatio="xMidYMid meet"/>`
+                  );
+                  xCur += emojiSize + 4;
                 }
+                // If uri is null (fetch failed) — skip entirely, show nothing
+                // Better than showing a code point number
               } else if (seg.val) {
-                // Bold detection within this text segment
-                const bSegs = parseBold(seg.val.replace(/\*\*/g,'')); // plain text, no bold markers here
-                parts.push(`<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" font-size="${fs}" font-weight="${fw}" fill="${fill}" xml:space="preserve">${xe(seg.val)}</text>`);
-                xCur += estWidth(seg.val, fs);
+                // Strip any non-BMP residual before putting into <text>
+                const safeVal = stripResidualEmoji(seg.val);
+                if (!safeVal) continue;
+                // Apply bold if the raw line has bold markers overlapping this segment
+                // Simple approach: check if this text appears in a bold segment
+                const inBold = boldSegs.some(b => b.b && b.t.includes(seg.val.trim()));
+                const weight = inBold ? 900 : fw;
+                const color  = inBold ? '#FFFFFF' : fill;
+                parts.push(
+                  `<text x="${Math.round(xCur)}" y="${y}" font-family="${BF}" ` +
+                  `font-size="${fs}" font-weight="${weight}" fill="${color}" ` +
+                  `xml:space="preserve">${xe(safeVal)}</text>`
+                );
+                xCur += estWidth(safeVal, fs);
               }
             }
             return parts.join('');
