@@ -767,9 +767,17 @@ async function ghComment(type, payload) {
 }
 
 async function pollStatus(jobId) {
-  const r = await fetch(`${RAW}/${jobId}.json?t=${Date.now()}`);
-  if (!r.ok) return null;
-  return r.json();
+  // raw.githubusercontent.com CDN caches files for ~5 min and ignores ?t= params.
+  // The GitHub Contents API bypasses the CDN and always returns fresh data.
+  try {
+    const url = `https://api.github.com/repos/${CFG.owner}/${CFG.repo}/contents/api/status/${encodeURIComponent(jobId)}.json?t=${Date.now()}`;
+    const r   = await fetch(url, {
+      headers: { 'Accept': 'application/vnd.github.v3.raw', 'X-GitHub-Api-Version': '2022-11-28' },
+      cache:   'no-store'
+    });
+    if (!r.ok) return null;
+    return r.json();
+  } catch { return null; }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -831,7 +839,7 @@ async function sendMsg() {
       addHist({ jobId, label: text.slice(0,80), tpl:'vidgen', ts: Date.now(), status:'processing' });
       addVidGroup(jobId);
       scrollDown();
-      _poll = setInterval(() => pollVid(jobId), 5000);
+      _poll = setInterval(() => pollVid(jobId), 4000);
     } catch(e) {
       $v(thinkId);
       addErrMsg(e.message);
@@ -848,7 +856,7 @@ async function sendMsg() {
       addHist({ jobId, label: text.slice(0,80), tpl:'imggen', ts: Date.now(), status:'processing' });
       addImgGroup(jobId);
       scrollDown();
-      _poll = setInterval(() => pollImg(jobId), 8000);
+      _poll = setInterval(() => pollImg(jobId), 4000);
     } catch(e) {
       $v(thinkId);
       addErrMsg(e.message);
