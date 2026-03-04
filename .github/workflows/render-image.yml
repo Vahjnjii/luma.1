@@ -85,14 +85,12 @@ jobs:
           }
           if (!posts.length) { console.error('No posts returned from Worker'); process.exit(1); }
           
-          // ── Decode any HTML entities the AI may have output (e.g. &#128512; → 😀) ──
-          // LLMs sometimes escape emoji as decimal/hex HTML entities in their JSON output.
-          // These survive JSON.parse as literal strings and show as raw code in SVG text.
+          // ── Decode HTML entities the AI may output (e.g. &#128512; → 😀) ──
           function decodeEntities(str) {
             if (!str) return str;
             return str
-              .replace(/&#(\d+);/g,           (_, n) => { try { return String.fromCodePoint(parseInt(n, 10)); } catch { return ''; } })
-              .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return ''; } });
+              .replace(/&#(\d+);/g,           (_, n) => { try { return String.fromCodePoint(parseInt(n,10)); } catch { return ''; } })
+              .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h,16)); } catch { return ''; } });
           }
           posts = posts.map(p => ({
             ...p,
@@ -100,25 +98,36 @@ jobs:
             content: (p.content || []).map(l => decodeEntities(l || ''))
           }));
           
+          // ── Strip leading post numbers from titles (e.g. "1. Aries" → "Aries") ──
+          // Handles: "1." "1)" "(1)" "1、" "Post 1:" "第1课" "一、" etc.
+          function stripPostNum(t) {
+            return (t||'')
+              .replace(/^\s*(?:post|POST)\s*\d+\s*[.:\-]\s*/i, '')
+              .replace(/^\s*\(?\d+[.):\-、]\s*/,                '')
+              .replace(/^\s*第\s*\d+\s*[条节课章部]\s*/u,        '')
+              .replace(/^\s*[一二三四五六七八九十][、。：\s]/u,  '')
+              .trim();
+          }
+          posts = posts.map(p => ({ ...p, title: stripPostNum(p.title) }));
+          
           // ══════════════════════════════════════════════════════════════
-          // BOLD — Multi-layer bolding:
-          //   1. Zodiac/planet names in ANY language → always bold
-          //   2. Title words that reappear in content → bold
-          //   3. ALL-CAPS Latin words (3+ chars) → bold
-          //   4. Numbers with units (%, ₹, $, ordinals) → bold
-          //   5. Key timing & emphasis words → bold
+          // BOLD — applied in render-image so it works even if AI missed it.
+          // Uses the 70B AI model output as primary source (**already in text**).
+          // This layer is a reliable fallback for zodiac/planet/number words
+          // that the AI might have missed, especially in multilingual content.
           // ══════════════════════════════════════════════════════════════
           const clean = t => (t||'').replace(/\*\*/g,'').trim();
-          const strip = t => (t||'').replace(/^\s*(?:post\s*)?\d+\s*[.:\)]\s*/i,'').replace(/^\s*\(\d+\)\s*/,'').trim();
+          const strip = t => (t||'').trim();
           
-          // ── Zodiac signs in 12+ languages ──
+          // Zodiac signs — 14 languages
           const ZODIAC_WORDS = [
-            // English
             'Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces',
-            // Hindi / Marathi (Devanagari)
+            // Chinese
+            '白羊座','金牛座','双子座','巨蟹座','狮子座','处女座','天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座',
+            // Japanese
+            '牡羊座','牡牛座','双子座','蟹座','獅子座','乙女座','天秤座','蠍座','射手座','山羊座','水瓶座','魚座',
+            // Hindi/Marathi
             'मेष','वृषभ','मिथुन','कर्क','कर्कट','सिंह','कन्या','तुला','वृश्चिक','धनु','मकर','कुंभ','मीन',
-            // Bengali
-            'মেষ','বৃষভ','মিথুন','কর্কট','সিংহ','কন্যা','তুলা','বৃশ্চিক','ধনু','মকর','কুম্ভ','মীন',
             // Tamil
             'மேஷம்','ரிஷபம்','மிதுனம்','கடகம்','சிம்மம்','கன்னி','துலாம்','விருச்சிகம்','தனுசு','மகரம்','கும்பம்','மீனம்',
             // Malayalam
@@ -127,73 +136,49 @@ jobs:
             'మేషం','వృషభం','మిథునం','కర్కాటకం','సింహం','కన్య','తుల','వృశ్చికం','ధనుస్సు','మకరం','కుంభం','మీనం',
             // Kannada
             'ಮೇಷ','ವೃಷಭ','ಮಿಥುನ','ಕರ್ಕಾಟಕ','ಸಿಂಹ','ಕನ್ಯಾ','ತುಲಾ','ವೃಶ್ಚಿಕ','ಧನು','ಮಕರ','ಕುಂಭ','ಮೀನ',
+            // Bengali
+            'মেষ','বৃষভ','মিথুন','কর্কট','সিংহ','কন্যা','তুলা','বৃশ্চিক','ধনু','মকর','কুম্ভ','মীন',
             // Gujarati
             'મેષ','વૃષભ','મિથુન','કર્ક','સિંહ','કન્યા','તુલા','વૃશ્ચિક','ધન','મકર','કુંભ','મીન',
-            // Punjabi (Gurmukhi)
-            'ਮੇਖ','ਬਿਰਖ','ਮਿਥੁਨ','ਕਰਕ','ਸਿੰਘ','ਕੰਨਿਆ','ਤੁਲਾ','ਵਿਛੂ','ਧਨੁ','ਮਕਰ','ਕੁੰਭ','ਮੀਨ',
-            // Odia
-            'ମେଷ','ବୃଷ','ମିଥୁନ','କର୍କଟ','ସିଂହ','କନ୍ୟା','ତୁଳା','ବୃଶ୍ଚିକ','ଧନୁ','ମକର','କୁମ୍ଭ','ମୀନ',
             // Arabic
             'الحمل','الثور','الجوزاء','السرطان','الأسد','العذراء','الميزان','العقرب','القوس','الجدي','الدلو','الحوت',
-            // Urdu
-            'حمل','ثور','جوزا','سرطان','اسد','سنبلہ','میزان','عقرب','قوس','جدی','دلو','حوت',
+            // German
+            'Widder','Stier','Zwillinge','Krebs','Löwe','Jungfrau','Waage','Skorpion','Schütze','Steinbock','Wassermann','Fische',
+            // Spanish
+            'Aries','Tauro','Géminis','Cáncer','Virgo','Libra','Escorpio','Escorpión','Sagitario','Capricornio','Acuario','Piscis',
+            // French
+            'Bélier','Taureau','Gémeaux','Cancer','Vierge','Balance','Scorpion','Sagittaire','Capricorne','Verseau','Poissons',
           ];
           
-          // ── Planet names in multiple languages ──
           const PLANET_WORDS = [
-            // English
             'Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu','Uranus','Neptune','Pluto',
-            // Hindi
             'सूर्य','चंद्र','मंगल','बुध','गुरु','शुक्र','शनि','राहु','केतु',
-            // Tamil
+            '太阳','月亮','火星','水星','木星','金星','土星',
             'சூரியன்','சந்திரன்','செவ்வாய்','புதன்','குரு','சுக்கிரன்','சனி','ராகு','கேது',
-            // Malayalam
             'സൂര്യൻ','ചന്ദ്രൻ','ചൊവ്വ','ബുധൻ','ഗുരു','ശുക്രൻ','ശനി','രാഹു','കേതു',
-            // Telugu
-            'సూర్యుడు','చంద్రుడు','కుజుడు','బుధుడు','గురుడు','శుక్రుడు','శని','రాహువు','కేతువు',
-            // Kannada
-            'ಸೂರ್ಯ','ಚಂದ್ರ','ಮಂಗಳ','ಬುಧ','ಗುರು','ಶುಕ್ರ','ಶನಿ','ರಾಹು','ಕೇತು',
-            // Bengali
-            'সূর্য','চন্দ্র','মঙ্গল','বুধ','বৃহস্পতি','শুক্র','শনি','রাহু','কেতু',
-            // Arabic
+            'Sonne','Mond','Mars','Merkur','Jupiter','Venus','Saturn',
             'الشمس','القمر','المريخ','عطارد','المشتري','الزهرة','زحل',
           ];
           
-          // Build a single regex from all zodiac + planet words (longest first to avoid partial matches)
           const _allSpecial = [...ZODIAC_WORDS, ...PLANET_WORDS]
             .sort((a, b) => b.length - a.length)
             .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-          const SPECIAL_RE = new RegExp('(' + _allSpecial.join('|') + ')', 'gu');
+          const SPECIAL_RE = new RegExp('(?<!\\*\\*)(' + _allSpecial.join('|') + ')(?!\\*\\*)', 'gu');
           
-          // Key timing / emphasis words that should be bolded
-          const TIMING_RE = /(?<!\*)\b(Today|Tomorrow|Yesterday|Tonight|Now|Weekly|Daily|Monthly|Yearly|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Note|Tip|Key|Best|Worst|Special|Rare|Excellent|Good|Bad|Critical)\b(?!\*)/gi;
+          const TIMING_RE = /(?<!\*\*)\b(Today|Tomorrow|Yesterday|Tonight|Now|Weekly|Daily|Monthly|Yearly|Lucky|Unlucky|Auspicious|Inauspicious|Important|Warning|Alert|Best|Worst|Special|Excellent|Good|Bad|Critical|Favorable|Unfavorable)\b(?!\*\*)/gi;
           
           function applyBold(title, content) {
-            // Collect significant words from title (3+ chars, any script)
-            const titleWords = [...new Set(
-              clean(title).split(/\s+/).filter(w => w.length >= 3)
-            )];
-            const titleRe = titleWords.length
-              ? new RegExp('(' + titleWords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')', 'gu')
-              : null;
-          
             function boldLine(t) {
               if (!t) return t;
-              // 1. Zodiac & planet names in any language → bold (top priority)
+              // Already has ** from AI — still apply fallback rules for missed words
               t = t.replace(SPECIAL_RE, '**$1**');
-              // 2. Title words in content → bold
-              if (titleRe) t = t.replace(titleRe, '**$1**');
-              // 3. ALL-CAPS Latin words (3+ chars, not already bolded)
               t = t.replace(/(?<!\*)\b([A-Z]{3,})\b(?!\*)/g, '**$1**');
-              // 4. Numbers with units: %, ₹, $, €, £ or ordinals (1st, 2nd, 3rd, Nth)
               t = t.replace(/(?<!\*)\b(\d+(?:\.\d+)?\s*[%₹$€£]|[₹$€£]\s*\d+(?:\.\d+)?|\d+(?:st|nd|rd|th))\b(?!\*)/g, '**$1**');
-              // 5. Key timing & emphasis words
               t = t.replace(TIMING_RE, '**$1**');
-              // 6. Clean double-bold artifacts
-              t = t.replace(/\*\*\*\*/g,'**').replace(/\*\*(\s+)\*\*/g,'$1');
+              // Clean any double-bold artifacts
+              t = t.replace(/\*{4}/g,'**').replace(/\*\*(\s+)\*\*/g,'$1');
               return t;
             }
-          
             return {
               title:   boldLine(strip(title)),
               content: content.map(l => l ? boldLine(l) : l)
@@ -201,6 +186,55 @@ jobs:
           }
           
           posts = posts.map(p => applyBold(p.title||'', p.content||[]));
+
+          // ── Emoji ensure: if AI missed adding emoji to a line, add one based on content ──
+          // This is a guaranteed fallback so every line always has an emoji.
+          const EMOJI_RE_CHECK = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u;
+          
+          function topicEmoji(text) {
+            const t = (text||'').toLowerCase();
+            // Zodiac / astrology
+            if (/aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces/.test(t) ||
+                /मेष|वृषभ|मिथुन|कर्क|सिंह|कन्या|तुला|वृश्चिक|धनु|मकर|कुंभ|मीन/.test(t) ||
+                /白羊|金牛|双子|巨蟹|狮子|处女|天秤|天蝎|射手|摩羯|水瓶|双鱼/.test(t) ||
+                /zodiac|rashi|rashifal|horoscope|astro/.test(t)) return '🔮';
+            if (/lucky|luck|fortune|शुभ|吉|auspicious/.test(t)) return '🍀';
+            if (/warning|caution|alert|danger|beware|सावधान/.test(t)) return '⚠️';
+            if (/love|heart|romance|प्रेम|愛|liebe|amour/.test(t)) return '❤️';
+            if (/money|wealth|finance|earn|profit|धन|钱|geld/.test(t)) return '💰';
+            if (/health|fitness|body|स्वास्थ्य|健康|gesundheit/.test(t)) return '💪';
+            if (/career|job|work|business|profession|career|करियर|事業|karriere/.test(t)) return '💼';
+            if (/study|learn|education|पढ़|学习|lernen/.test(t)) return '📚';
+            if (/travel|journey|trip|यात्रा|旅行|reise/.test(t)) return '✈️';
+            if (/family|home|house|परिवार|家庭|familie/.test(t)) return '🏠';
+            if (/friend|relation|friendship|मित्र|友情|freund/.test(t)) return '🤝';
+            if (/sun|solar|surya|सूर्य|太阳|sonne/.test(t)) return '☀️';
+            if (/moon|lunar|chandra|चंद्र|月亮|mond/.test(t)) return '🌙';
+            if (/star|星|तारा|stern/.test(t)) return '⭐';
+            if (/fire|energy|passion|जोश|火|feuer/.test(t)) return '🔥';
+            if (/nature|flower|garden|प्रकृति|自然|natur/.test(t)) return '🌸';
+            if (/win|success|victory|विजय|成功|erfolg/.test(t)) return '🏆';
+            if (/good|great|excel|best|शुभ|好|gut/.test(t)) return '✨';
+            return '🌟'; // universal fallback
+          }
+          
+          posts = posts.map(p => {
+            function ensureEmoji(line) {
+              if (!line || !line.trim()) return line;
+              const cleaned = clean(line).trim();
+              if (!cleaned) return line;
+              // Check if last real character is already an emoji
+              const lastChar = [...cleaned].pop() || '';
+              if (EMOJI_RE_CHECK.test(lastChar)) return line; // already has emoji
+              // Add topic-relevant emoji
+              return line.trimEnd() + ' ' + topicEmoji(clean(line));
+            }
+            return {
+              title:   ensureEmoji(p.title),
+              content: p.content.map(l => ensureEmoji(l)),
+            };
+          });
+          
           
           // ══════════════════════════════════════════════════════════════
           // EMOJI — rendered directly as SVG <text> using system emoji fonts
