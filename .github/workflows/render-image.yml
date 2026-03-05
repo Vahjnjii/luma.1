@@ -354,16 +354,20 @@ jobs:
             }
 
             // SVG — black background, clip overflow
-            return `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-<defs>
-  <clipPath id="clip"><rect width="${W}" height="${H}"/></clipPath>
-</defs>
-<rect width="${W}" height="${H}" fill="#000000"/>
-<g clip-path="url(#clip)">
-${els.join('\n')}
-</g>
-</svg>`;
+            // NOTE: built via array join to avoid YAML-breaking template literals
+            const svgLines = [
+              '<?xml version="1.0" encoding="UTF-8"?>',
+              '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">',
+              '<defs>',
+              '  <clipPath id="clip"><rect width="' + W + '" height="' + H + '"/></clipPath>',
+              '</defs>',
+              '<rect width="' + W + '" height="' + H + '" fill="#000000"/>',
+              '<g clip-path="url(#clip)">',
+              ...els,
+              '</g>',
+              '</svg>',
+            ];
+            return svgLines.join('\n');
           }
 
           const dir='api/status';
