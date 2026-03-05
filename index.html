@@ -213,7 +213,7 @@ body::before{
 
 .ch-nav{
   flex-shrink:0;display:flex;align-items:center;gap:10px;
-  padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top));
+  padding:8px 10px;padding-top:calc(8px + env(safe-area-inset-top));
   background:rgba(3,3,8,.95);backdrop-filter:blur(20px);
   border-bottom:1px solid var(--bd);z-index:10;
 }
@@ -239,11 +239,21 @@ body::before{
   transition:all .2s;white-space:nowrap;
 }
 .ch-hist-btn:hover{background:rgba(255,255,255,.07);color:var(--tx)}
+.ch-model-btn{
+  display:flex;align-items:center;gap:5px;
+  background:rgba(124,109,255,.1);border:1px solid rgba(124,109,255,.22);
+  border-radius:var(--r8);padding:7px 11px;color:var(--acc2);
+  font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;
+  transition:all .2s;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis;
+}
+.ch-model-btn:hover{background:rgba(124,109,255,.18);border-color:rgba(124,109,255,.4);color:#fff}
+.ch-model-btn i{font-size:11px;flex-shrink:0}
+.ch-model-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .ch-msgs{
   flex:1;overflow-y:auto;overflow-x:hidden;
   -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-  padding:18px 14px 10px;display:flex;flex-direction:column;gap:10px;
+  padding:12px 14px 8px;display:flex;flex-direction:column;gap:8px;
 }
 .ch-empty{
   flex:1;display:flex;flex-direction:column;align-items:center;
@@ -838,17 +848,11 @@ body::before{
   <div class="mesh mesh-a" style="opacity:.07"></div>
   <div class="tmpl-nav">
     <div class="tmpl-brand">LUMA</div>
-    <div style="display:flex;align-items:center;gap:8px">
-      <button class="model-btn" onclick="openModelSheet()">
-        <i class="fas fa-microchip"></i>
-        <span id="nav-model-label">AI Model</span>
-      </button>
-      <div class="user-pill" onclick="toggleSO()">
+    <div class="user-pill" onclick="toggleSO()">
       <div class="user-pill-av" id="user-av"></div>
       <span id="user-name-nav"></span>
       <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
-      </div>
-    </div><!-- end nav-right -->
+    </div>
   </div>
   <div class="tmpl-body">
     <div id="greet" class="tmpl-greet">Hey there 👋</div>
@@ -920,7 +924,10 @@ body::before{
       <div class="ch-nav-icon" id="ch-icon">🎨</div>
       <div class="ch-nav-title" id="ch-title">Image Generator</div>
     </div>
-    <button class="ch-hist-btn" onclick="openHistory()"><i class="fas fa-clock-rotate-left"></i> History</button>
+    <button class="ch-model-btn" onclick="openModelSheet()" id="ch-model-btn">
+      <i class="fas fa-microchip"></i><span id="nav-model-label">AI Model</span>
+    </button>
+    <button class="ch-hist-btn" onclick="openHistory()"><i class="fas fa-clock-rotate-left"></i></button>
   </div>
 
   <div id="session-bar"></div>
