@@ -105,6 +105,24 @@ jobs:
 
           const cleanText = t => (t||'').replace(/\*\*/g,'').trim();
 
+          // ── Auto-bold important words in content ─────────────────────────────
+          // Bolds: numbers+units, ALL-CAPS keywords, words after ":" label patterns,
+          // key medical/financial/action terms. Works across all languages.
+          function autoBoldImportant(text) {
+            if (!text) return text;
+            // Skip lines that already have bold markers
+            if (text.includes('**')) return text;
+            let t = text;
+            // Numbers with units (universal)
+            t = t.replace(/\b(\d[\d,\.]*\s*(?:%|kg|km|cm|mm|mg|ml|g\b|L\b|hr|hrs|min|sec|s\b|m\b|ft|lb|oz|K\b|M\b|B\b|cr|lakh|万|억|百|千|元|円|₹|€|\$|£|¥|years?|months?|weeks?|days?|hours?))\b/gi, '**$1**');
+            // ALL-CAPS words (3+ letters) — skip common articles/prepositions
+            const skipWords = new Set(['THE','AND','FOR','BUT','NOT','ARE','WAS','HAS','CAN','MAY','USE','DUE','PER','VIA','OUR','YOU','ALL','ANY','NEW','OLD','TOO','YET','ITS','HER','HIS','HOW','WHO','WHY','YES','NOW']);
+            t = t.replace(/\b([A-Z][A-Z0-9]{2,})\b/g, (m) => skipWords.has(m) ? m : `**${m}**`);
+            // Key-value pattern: "Label: value" → bold the value after colon
+            t = t.replace(/:\s+([A-Z][^\n,;]{2,25})(?=[,;\n]|$)/g, (m, val) => ': **' + val.trim() + '**');
+            return t;
+          }
+
           function stripPostNumber(title) {
             return (title||'')
               .replace(/^\s*(?:post\s*)?\d+\s*[.:)\-]\s*/i, '')
@@ -257,33 +275,43 @@ jobs:
           //      • text starts at PX + emojiWidth + gap (right column)
           //      • continuation lines wrap under the TEXT column, not under the emoji
           async function makeSVG(post) {
-            const W = 1080, H = 1920, PX = 110, PY = 130;
+            const W = 1080, H = 1920;
+            // 2cm margin at 96dpi ≈ 75px. At 1080px wide, ~75px = ~7% of width.
+            // We use 75px top/bottom margin, 90px left/right for breathing room.
+            const PX = 90, PY = 75;
             const CW = W - PX * 2, BOTTOM = H - PY;
 
             const rawTitle = (post.title || '').trim();
             const content  = (post.content || []);
 
-            const visLen = charVisLen(cleanText(rawTitle)) + charVisLen(content.map(l => cleanText(l||'')).join(''));
+            // Auto-bold important words in content lines
+            const contentBolded = content.map(l => autoBoldImportant(l || ''));
+
+            // Content length for font-size decisions (exclude title from body calc)
+            const bodyLen = charVisLen(contentBolded.map(l => cleanText(l||'')).join(''));
+            const titleLen = charVisLen(cleanText(rawTitle));
+
+            // TITLE: always H1-sized — large, dominant. Shrinks only if title itself is very long.
+            // BODY: sizes based on total body content to fill the available space.
             let ts, bs, tlh, blh, gap;
-            if      (visLen < 80)  { ts=96; bs=62; tlh=134; blh=90;  gap=76; }
-            else if (visLen < 150) { ts=86; bs=55; tlh=120; blh=82;  gap=68; }
-            else if (visLen < 260) { ts=74; bs=49; tlh=104; blh=72;  gap=58; }
-            else if (visLen < 420) { ts=65; bs=44; tlh=92;  blh=64;  gap=50; }
-            else if (visLen < 620) { ts=55; bs=40; tlh=80;  blh=58;  gap=44; }
-            else if (visLen < 900) { ts=48; bs=35; tlh=70;  blh=50;  gap=36; }
-            else                   { ts=41; bs=31; tlh=60;  blh=44;  gap=32; }
+            if      (titleLen <= 20 && bodyLen < 100)  { ts=130; bs=68; tlh=175; blh=100; gap=90; }
+            else if (titleLen <= 30 && bodyLen < 200)  { ts=118; bs=60; tlh=158; blh=90;  gap=80; }
+            else if (titleLen <= 40 && bodyLen < 350)  { ts=106; bs=54; tlh=142; blh=80;  gap=72; }
+            else if (titleLen <= 55 && bodyLen < 550)  { ts=94;  bs=48; tlh=126; blh=72;  gap=64; }
+            else if (titleLen <= 70 && bodyLen < 800)  { ts=82;  bs=43; tlh=112; blh=64;  gap=56; }
+            else if (bodyLen < 1100)                   { ts=72;  bs=38; tlh=98;  blh=56;  gap=48; }
+            else if (bodyLen < 1500)                   { ts=62;  bs=34; tlh=86;  blh=50;  gap=42; }
+            else                                       { ts=54;  bs=30; tlh=74;  blh=44;  gap=36; }
 
-            const tCPL = Math.floor(CW / (ts * 0.50));
-            const bCPL = Math.floor(CW / (bs * 0.50));
+            const tCPL = Math.floor(CW / (ts * 0.52));
+            const bCPL = Math.floor(CW / (bs * 0.52));
 
-            // Title lines — same as reference
+            // Title lines
             const titleLines = smartWrap(rawTitle, tCPL);
 
-            // Body lines — same as reference EXCEPT emoji-bullet handling
-            // An emoji at the start of a line is treated as a fixed left-column bullet.
-            // The text occupies a right column; continuation wraps stay in that column.
+            // Body lines — emoji bullet two-column layout
             const bodyLines = [];
-            for (const line of content) {
+            for (const line of contentBolded) {
               const raw = line || '';
               if (!cleanText(raw)) {
                 bodyLines.push({ raw: '', gap: true, px: PX });
@@ -291,32 +319,26 @@ jobs:
               }
               const em = getLeadingEmoji(raw);
               if (em) {
-                // Pixel width of the emoji column: ~1.3× body font-size + small gap
                 const emColPx  = Math.round(bs * 1.3) + Math.round(bs * 0.25);
-                const textPX   = PX + emColPx;           // x-start of text column
-                const textCW   = W - textPX - PX;        // available width for text
-                const textCPL  = Math.floor(textCW / (bs * 0.50));
+                const textPX   = PX + emColPx;
+                const textCW   = W - textPX - PX;
+                const textCPL  = Math.floor(textCW / (bs * 0.52));
                 const rest     = raw.slice(raw.indexOf(em) + em.length).trimStart();
                 const wrapped  = smartWrap(rest || '', textCPL);
-                // Emit: emoji on its own at PX, first text line at textPX on same y
-                // We store them as two entries for the same y — handled in render loop
-                bodyLines.push({ raw: em,              gap: false, px: PX,     sameY: true  });
-                bodyLines.push({ raw: wrapped[0]||'',  gap: false, px: textPX, sameY: false });
-                // Continuation lines: indent to text column, each on its own y
-                for (let wi = 1; wi < wrapped.length; wi++) {
+                bodyLines.push({ raw: em,             gap: false, px: PX,     sameY: true  });
+                bodyLines.push({ raw: wrapped[0]||'', gap: false, px: textPX, sameY: false });
+                for (let wi = 1; wi < wrapped.length; wi++)
                   bodyLines.push({ raw: wrapped[wi], gap: false, px: textPX, sameY: false });
-                }
               } else {
-                for (const w of smartWrap(raw, bCPL)) {
+                for (const w of smartWrap(raw, bCPL))
                   bodyLines.push({ raw: w, gap: false, px: PX });
-                }
               }
             }
 
-            // Total height — sameY lines share a row so don't add to height
+            // Vertical centering — content fills between 2cm margins
             const titleH = titleLines.length * tlh;
             const bodyH  = bodyLines.reduce((s, l) => {
-              if (l.sameY) return s; // emoji half of pair — no extra height
+              if (l.sameY) return s;
               return s + (l.gap ? blh * 0.5 : blh);
             }, 0);
             const totalH = titleH + (bodyLines.length ? gap + bodyH : 0);
@@ -326,35 +348,31 @@ jobs:
 
             const els = [];
 
-            // Title
+            // Title — H1, always large, white, bold
             for (const line of titleLines) {
               if (y > BOTTOM + ts) break;
               els.push(renderLine(PX, y, BASE_FONT, ts, 800, '#FFFFFF', line));
               y += tlh;
             }
 
-            // Accent bar — identical to reference
+            // Accent bar under title
             if (bodyLines.length) {
               const ay = y + Math.round(gap * 0.28);
               if (ay < BOTTOM)
-                els.push(`<rect x="${PX}" y="${ay}" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>`);
+                els.push('<rect x="' + PX + '" y="' + ay + '" width="44" height="4" rx="2" fill="rgba(139,92,246,0.75)"/>');
               y += gap;
             }
 
-            // Body
+            // Body content — auto-sized, important words bolded
             for (const line of bodyLines) {
               if (!line.gap && !line.sameY && y > BOTTOM + bs) break;
-              if (!line.gap) {
+              if (!line.gap)
                 els.push(renderLine(line.px, y, BASE_FONT, bs, 400, 'rgba(255,255,255,0.85)', line.raw));
-              }
-              // Only advance y when sameY is false (text column) or it's a gap line
-              if (!line.sameY) {
+              if (!line.sameY)
                 y += line.gap ? Math.round(blh * 0.5) : blh;
-              }
             }
 
-            // SVG — black background, clip overflow
-            // NOTE: built via array join to avoid YAML-breaking template literals
+            // Final SVG
             const svgLines = [
               '<?xml version="1.0" encoding="UTF-8"?>',
               '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">',
