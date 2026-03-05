@@ -431,8 +431,7 @@ jobs:
               } catch(e) {
                 console.log(`Push retry ${attempt}:`, e.message?.slice(0,80));
                 try { execSync('git rebase --abort', {stdio:'pipe'}); } catch {}
-                const wait = attempt * 2000;
-                await new Promise(r => setTimeout(r, wait));
+                execSync(`sleep ${attempt * 2}`);
               }
             }
           }
