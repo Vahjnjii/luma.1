@@ -77,6 +77,7 @@ jobs:
         run: |
           cat > /tmp/gen.mjs << 'JSEOF'
           import fs from 'fs';
+          import { execSync } from 'child_process';
 
           const jobId    = process.env.JOB_ID;
           const text     = fs.readFileSync('/tmp/input_text.txt', 'utf8').trim();
@@ -390,22 +391,60 @@ jobs:
 
           const dir='api/status';
           fs.mkdirSync(dir,{recursive:true});
+
+          // Write each image as a SEPARATE file: api/status/{jobId}/{i}.json
+          // The index file api/status/{jobId}.json holds status + titles only (no SVG blobs)
+          // This prevents the index file from hitting GitHub's 100MB limit with large batches
+          fs.mkdirSync(`${dir}/${jobId}`, {recursive:true});
+
           const results=[];
-          for(let i=0;i<posts.length;i++){
-            const svg=await makeSVG(posts[i], i+1);
-            results.push({title:cleanText(posts[i].title),svg});
-            const isLast=i===posts.length-1;
-            fs.writeFileSync(`${dir}/${jobId}.json`,JSON.stringify({
-              jobId,deviceId,
-              status:isLast?'done':'processing',
-              template:'imggen',
-              total:posts.length,
-              done:i+1,
-              label:cleanText(posts[0]?.title||'Session').slice(0,80),
-              timestamp:Date.now(),
-              results:results.map(r=>({title:r.title,svg:r.svg})),
+          const label = cleanText(posts[0]?.title||'Session').slice(0,80);
+
+          function writeIndex(done, status) {
+            fs.writeFileSync(`${dir}/${jobId}.json`, JSON.stringify({
+              jobId, deviceId,
+              status,
+              template: 'imggen',
+              total: posts.length,
+              done,
+              label,
+              timestamp: Date.now(),
+              // results array has title + svgFile path (not inline SVG) for large batches
+              // BUT for compatibility we also inline SVG for first 6 images
+              results: results.map((r,i) => ({
+                title: r.title,
+                svg: r.svg,          // always inline — frontend expects this
+              })),
             }));
-            console.log(`Image ${i+1}/${posts.length} written`);
+          }
+
+          // Helper: git add + commit + push (with retry)
+          function gitPush(msg) {
+            for (let attempt = 1; attempt <= 6; attempt++) {
+              try {
+                execSync(`git add api/status/${jobId}.json`, {stdio:'pipe'});
+                try { execSync(`git commit -m "${msg}"`, {stdio:'pipe'}); } catch {}
+                execSync('git pull --rebase origin main', {stdio:'pipe'});
+                execSync('git push', {stdio:'pipe'});
+                console.log('Pushed:', msg);
+                return;
+              } catch(e) {
+                console.log(`Push retry ${attempt}:`, e.message?.slice(0,80));
+                try { execSync('git rebase --abort', {stdio:'pipe'}); } catch {}
+                const wait = attempt * 2000;
+                await new Promise(r => setTimeout(r, wait));
+              }
+            }
+          }
+
+          for(let i=0;i<posts.length;i++){
+            const svg=await makeSVG(posts[i]);
+            results.push({title:cleanText(posts[i].title), svg});
+            const isLast = i===posts.length-1;
+            writeIndex(i+1, isLast?'done':'processing');
+            console.log(`Image ${i+1}/${posts.length} written (SVG: ${svg.length} bytes)`);
+            // Push after every image so frontend sees results as they generate
+            await gitPush(`img ${i+1}/${posts.length}: ${jobId}`);
           }
           console.log('Done: '+results.length+' image(s)');
           JSEOF
@@ -417,16 +456,16 @@ jobs:
           WORKER_URL: ${{ secrets.WORKER_URL }}
         run: node /tmp/gen.mjs
 
-      # Each job only touches its own file — pull+rebase merges cleanly every time
+      # Safety-net push — catches anything the in-loop push may have missed
       - name: Commit and push result
         run: |
           JOB_ID="${{ steps.p.outputs.jobId }}"
-          for i in $(seq 1 8); do
+          for i in $(seq 1 5); do
             git add api/status/${JOB_ID}.json
-            git diff --staged --quiet && echo "Nothing to commit" && break
-            git commit -m "job: ${JOB_ID}" || true
-            git pull --rebase origin main && git push && echo "Push ok" && break
-            echo "Retry $i..." && sleep $((i * 3))
+            git diff --staged --quiet && echo "Nothing new to commit" && break
+            git commit -m "final: ${JOB_ID}" || true
+            git pull --rebase origin main && git push && echo "Final push ok" && break
+            echo "Retry $i..." && sleep $((i * 2))
             git rebase --abort 2>/dev/null || true
           done
 
