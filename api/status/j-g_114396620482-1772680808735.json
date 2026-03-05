@@ -1,1 +1,1 @@
-{"jobId":"j-g_114396620482-1772680808735","deviceId":"g_114396620482","status":"processing","template":"imggen","total":0,"done":0,"label":"Processing…","timestamp":1772680823162,"results":[]}
+{"status":"error","jobId":"j-g_114396620482-1772680808735","error":"Generation failed — check Actions logs.","results":[],"done":0,"total":0,"timestamp":1772680824115}
